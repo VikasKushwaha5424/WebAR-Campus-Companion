@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import MayaCharacter from './MayaCharacter';
 
 const TARGET_LOCATIONS = [
   { index: 0, id: 'library', name: 'Library' },
@@ -31,11 +32,9 @@ export default function MindARScene({ onTargetDetected, onTargetLost, isSpeaking
       if (loc) onTargetDetected?.(loc.id);
     };
 
-    const handleTargetLost = () => {
-      onTargetLost?.();
-    };
+    const handleTargetLost = () => onTargetLost?.();
 
-    const attachTargetListeners = () => {
+    const attach = () => {
       const targets = scene.querySelectorAll('[mindar-image-target]');
       targets.forEach((el) => {
         el.addEventListener('targetFound', handleTargetFound);
@@ -44,14 +43,14 @@ export default function MindARScene({ onTargetDetected, onTargetLost, isSpeaking
       return targets;
     };
 
-    const initTimer = setTimeout(() => {
-      const targets = attachTargetListeners();
+    const t1 = setTimeout(() => {
+      const targets = attach();
       if (targets.length > 0) {
         setArReady(true);
         onReady?.();
       } else {
-        const retryTimer = setTimeout(() => {
-          const retry = attachTargetListeners();
+        const t2 = setTimeout(() => {
+          const retry = attach();
           if (retry.length > 0) {
             setArReady(true);
             onReady?.();
@@ -59,12 +58,12 @@ export default function MindARScene({ onTargetDetected, onTargetLost, isSpeaking
             setError('AR targets not found. MindAR may not have loaded.');
           }
         }, 3000);
-        return () => clearTimeout(retryTimer);
+        return () => clearTimeout(t2);
       }
     }, 1500);
 
     return () => {
-      clearTimeout(initTimer);
+      clearTimeout(t1);
       const targets = scene?.querySelectorAll('[mindar-image-target]');
       targets?.forEach((el) => {
         el.removeEventListener('targetFound', handleTargetFound);
@@ -77,14 +76,14 @@ export default function MindARScene({ onTargetDetected, onTargetLost, isSpeaking
     <>
       {!arReady && !error && (
         <div className="ar-loading-overlay">
-          <div className="loading-spinner"></div>
+          <div className="loading-spinner" />
           <p>{error || 'Starting AR Camera...'}</p>
         </div>
       )}
       {error && (
         <div className="ar-loading-overlay">
-          <p style={{ color: '#f44336', fontSize: '14px' }}>{error}</p>
-          <p style={{ color: '#888', fontSize: '12px', marginTop: '8px' }}>
+          <p style={{ color: '#f44336', fontSize: 14 }}>{error}</p>
+          <p style={{ color: '#888', fontSize: 12, marginTop: 8 }}>
             Make sure campus-targets.mind is in public/targets/
           </p>
         </div>
@@ -96,65 +95,27 @@ export default function MindARScene({ onTargetDetected, onTargetLost, isSpeaking
         vr-mode-ui="enabled: false"
         renderer="colorManagement: true;"
         style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          zIndex: 0,
+          position: 'fixed', top: 0, left: 0,
+          width: '100%', height: '100%', zIndex: 0,
         }}
       >
-        <a-camera position="0 0 0" look-controls="enabled: false" far="100"></a-camera>
+        <a-camera position="0 0 0" look-controls="enabled: false" far="100" />
 
         {TARGET_LOCATIONS.map((loc) => (
           <a-entity
             key={loc.index}
             mindar-image-target={`targetIndex: ${loc.index}`}
           >
-            <a-entity position="0 0 0" scale="0.7 0.7 0.7">
-              <a-box
-                position="0 0.5 0"
-                width="0.5"
-                height="0.65"
-                depth="0.3"
-                color="#4CAF50"
-                shadow="cast: true"
-              ></a-box>
-              <a-sphere
-                position="0 1.15 0"
-                radius="0.22"
-                color="#FFCC80"
-                shadow="cast: true"
-              ></a-sphere>
-              <a-sphere position="-0.08 1.2 0.2" radius="0.035" color="#333"></a-sphere>
-              <a-sphere position="0.08 1.2 0.2" radius="0.035" color="#333"></a-sphere>
-              <a-torus
-                position="0 1.08 0.2"
-                radius="0.05"
-                radius-tubular="0.012"
-                color="#E57373"
-                rotation="-10 0 0"
-                segments-tubular="16"
-                segments-radial="8"
-              ></a-torus>
-              <a-text
-                value="Maya"
-                position="0 1.5 0"
-                align="center"
-                color="#FFF"
-                width="1.5"
-              ></a-text>
-              {isSpeaking && (
-                <a-ring
-                  position="0 0.05 0"
-                  radius-inner="1.0"
-                  radius-outer="1.3"
-                  color="#4CAF50"
-                  rotation="-90 0 0"
-                  animation="property: material.opacity; to: 0.3; dur: 800; dir: alternate; loop: true"
-                ></a-ring>
-              )}
-            </a-entity>
+            <MayaCharacter
+              id={`mindar-${loc.id}`}
+              position="0 0 0"
+              scale="0.7 0.7 0.7"
+              color="maya"
+              name="Maya"
+              isSpeaking={isSpeaking}
+              showLabel={false}
+              bobAnimation={false}
+            />
           </a-entity>
         ))}
       </a-scene>

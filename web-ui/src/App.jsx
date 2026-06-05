@@ -8,15 +8,8 @@ import WebXRScene from './components/WebXRScene';
 import ChatOverlay from './components/ChatOverlay';
 import HoldToTalk from './components/HoldToTalk';
 import DesktopControls from './components/DesktopControls';
+import { API_BASE, NPC_LIST, CAMPUS_LOCATIONS } from './data/config';
 import './App.css';
-
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000';
-
-const npcDetails = {
-  maya: { name: 'Maya (Campus Guide)', color: '#4CAF50' },
-  professor: { name: 'Professor Mehta', color: '#2196F3' },
-  silas: { name: 'Silas (Facilities)', color: '#f44336' },
-};
 
 function App() {
   const [activeNpc, setActiveNpc] = useState('maya');
@@ -34,70 +27,41 @@ function App() {
   const audioPlayerRef = useRef(new Audio());
 
   const isDesktop = renderMode === 'desktop';
-  const [permission, setPermission] = useState('prompt');
 
   useEffect(() => {
     async function detectCapabilities() {
       setRenderMode('loading');
-      const hasMediaDevices = !!navigator.mediaDevices?.getUserMedia;
-      let webxrSupported = false;
+      const hasCamera = !!navigator.mediaDevices?.getUserMedia;
+      let webxr = false;
       try {
-        webxrSupported = navigator.xr
+        webxr = navigator.xr
           ? await navigator.xr.isSessionSupported('immersive-ar')
           : false;
-      } catch {
-        webxrSupported = false;
-      }
+      } catch { webxr = false; }
 
-      if (webxrSupported) {
-        setRenderMode('webxr');
-      } else if (hasMediaDevices && /Mobi|Android|iPhone/i.test(navigator.userAgent)) {
+      if (webxr) setRenderMode('webxr');
+      else if (hasCamera && /Mobi|Android|iPhone/i.test(navigator.userAgent))
         setRenderMode('mobile-ar');
-      } else {
+      else
         setRenderMode('desktop');
-      }
     }
     detectCapabilities();
   }, []);
-
-  useEffect(() => {
-    if (renderMode === 'loading' || renderMode === 'desktop') return;
-    async function requestPermissions() {
-      try {
-        await navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: { facingMode: 'environment', width: { ideal: 640 } },
-        });
-        setPermission('granted');
-      } catch {
-        setPermission('denied');
-      }
-    }
-    const timer = setTimeout(requestPermissions, 300);
-    return () => clearTimeout(timer);
-  }, [renderMode]);
 
   const handleSendText = useCallback(
     async (text) => {
       if (!text?.trim()) return;
 
-      const userMessage = { sender: 'user', text, npc: activeNpc };
-      setChatHistory((prev) => [...prev, userMessage]);
+      const userMsg = { sender: 'user', text, npc: activeNpc };
+      setChatHistory((prev) => [...prev, userMsg]);
       setIsThinking(true);
       setInputText('');
-
-      telemetry.setStatus({
-        state: 'PROCESSING',
-        color: '🔵',
-        text: 'AI Processing...',
-      });
-      telemetry.logEvent('INFO', 'NETWORK', `Sending to ${npcDetails[activeNpc].name}...`);
+      telemetry.setStatus({ state: 'PROCESSING', color: '🔵', text: 'AI Processing...' });
 
       const startTime = Date.now();
-      const estimatedUserTokens = Math.ceil(text.length / 4);
 
       try {
-        const response = await axios.post(
+        const res = await axios.post(
           `${API_BASE}/generate`,
           {
             text,
@@ -109,57 +73,35 @@ function App() {
           { timeout: 10000, responseType: 'blob' }
         );
 
-        telemetry.setStatus({
-          state: 'RECEIVING',
-          color: '🟣',
-          text: 'Stream Connected',
-        });
+        telemetry.setStatus({ state: 'RECEIVING', color: '🟣', text: 'Stream Connected' });
 
-        const audioBlob = response.data;
-        if (audioBlob.size === 0) throw new Error('STREAM_EMPTY');
+        const blob = res.data;
+        if (blob.size === 0) throw new Error('STREAM_EMPTY');
 
-        const encodedText =
-          response.headers['x-npc-response'] || '';
-        const decodedText = decodeURIComponent(encodedText);
-        const aiMessage = {
-          sender: 'ai',
-          text: decodedText || '[Audio Response]',
-          npc: activeNpc,
-        };
+        const raw = res.headers['x-npc-response'] || '';
+        const decoded = decodeURIComponent(raw);
+        const aiMsg = { sender: 'ai', text: decoded || '[Audio Response]', npc: activeNpc };
+        setChatHistory((prev) => [...prev, aiMsg]);
 
-        setChatHistory((prev) => [...prev, aiMessage]);
-
-        const audioUrl = URL.createObjectURL(audioBlob);
+        const url = URL.createObjectURL(blob);
         const player = audioPlayerRef.current;
-        player.src = audioUrl;
+        player.src = url;
 
         player.onplay = () => {
-          const latency = Date.now() - startTime;
-          telemetry.updateLatency(latency);
-          telemetry.addTokens(
-            estimatedUserTokens + Math.ceil((decodedText.length || 0) / 4)
-          );
-          telemetry.setStatus({
-            state: 'SPEAKING',
-            color: '🟢',
-            text: 'Speaker Active',
-          });
+          telemetry.updateLatency(Date.now() - startTime);
+          telemetry.setStatus({ state: 'SPEAKING', color: '🟢', text: 'Speaker Active' });
           setIsThinking(false);
           setIsPlaying(true);
         };
 
         player.onended = () => {
           telemetry.setStatus({ state: 'IDLE', color: '🟢', text: 'Ready' });
-          URL.revokeObjectURL(audioUrl);
+          URL.revokeObjectURL(url);
           setIsPlaying(false);
         };
 
         player.play().catch(() => {
-          telemetry.setStatus({
-            state: 'ERROR',
-            color: '🟠',
-            text: 'Playback Blocked',
-          });
+          telemetry.setStatus({ state: 'ERROR', color: '🟠', text: 'Playback Blocked' });
           setIsThinking(false);
           setIsPlaying(false);
         });
@@ -167,110 +109,76 @@ function App() {
         setIsThinking(false);
         setIsPlaying(false);
         telemetry.setStatus({ state: 'ERROR', color: '🔴', text: 'API Error' });
-        let errorText = 'Connection error. Is the backend running?';
-        if (error.response?.status === 429)
-          errorText = 'AI Quota Exhausted. Switching to Offline Mode.';
-        setChatHistory((prev) => [
-          ...prev,
-          { sender: 'ai', text: errorText, npc: activeNpc },
-        ]);
+        const msg = error.response?.status === 429
+          ? 'AI Quota Exhausted. Switching to Offline Mode.'
+          : 'Connection error. Is the backend running?';
+        setChatHistory((prev) => [...prev, { sender: 'ai', text: msg, npc: activeNpc }]);
       }
     },
     [activeNpc, location, telemetry]
   );
 
   useEffect(() => {
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return;
 
-    if (recognitionRef.current) {
-      recognitionRef.current.abort();
-    }
+    recognitionRef.current?.abort();
 
-    const recognition = new SpeechRecognition();
+    const recognition = new SR();
     recognition.continuous = false;
     recognition.interimResults = false;
     recognition.lang = 'en-US';
 
     recognition.onstart = () => {
       setIsListening(true);
-      telemetry.setStatus({
-        state: 'LISTENING',
-        color: '🟡',
-        text: 'Mic Active',
-      });
-      telemetry.logEvent('INFO', 'STT', 'Microphone active.');
+      telemetry.setStatus({ state: 'LISTENING', color: '🟡', text: 'Mic Active' });
     };
 
     recognition.onend = () => setIsListening(false);
 
-    recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
+    recognition.onresult = (e) => {
+      const transcript = e.results[0][0].transcript;
       setInputText(transcript);
-      telemetry.logEvent('INFO', 'STT', `Transcript: "${transcript}"`);
       handleSendText(transcript);
     };
 
-    recognition.onerror = (event) => {
-      telemetry.setStatus({
-        state: 'ERROR',
-        color: '🔴',
-        text: 'Mic Error',
-      });
-      telemetry.logEvent('FATAL', 'HARDWARE', `Mic error: ${event.error}`);
+    recognition.onerror = (e) => {
+      telemetry.setStatus({ state: 'ERROR', color: '🔴', text: 'Mic Error' });
       setIsListening(false);
     };
 
     recognitionRef.current = recognition;
 
-    return () => {
-      recognition.abort();
-    };
+    return () => recognition.abort();
   }, [handleSendText, telemetry]);
 
   const toggleListen = useCallback(() => {
-    if (!recognitionRef.current) return;
+    const r = recognitionRef.current;
+    if (!r) return;
     if (isListening) {
-      recognitionRef.current.stop();
+      r.stop();
       telemetry.setStatus({ state: 'IDLE', color: '🟢', text: 'Ready' });
     } else {
-      telemetry.setStatus({
-        state: 'LISTENING',
-        color: '🟡',
-        text: 'Requesting Mic...',
-      });
-      recognitionRef.current.start();
+      telemetry.setStatus({ state: 'LISTENING', color: '🟡', text: 'Requesting Mic...' });
+      r.start();
     }
   }, [isListening, telemetry]);
 
   const handleAudioBlob = useCallback(
     async (blob) => {
-      telemetry.setStatus({
-        state: 'LISTENING',
-        color: '🟡',
-        text: 'Transcribing...',
-      });
-      telemetry.logEvent('INFO', 'STT', 'Sending audio to transcribe...');
-
+      telemetry.setStatus({ state: 'LISTENING', color: '🟡', text: 'Transcribing...' });
       try {
-        const formData = new FormData();
-        formData.append('file', blob, 'recording.webm');
-        formData.append('location', location);
+        const fd = new FormData();
+        fd.append('file', blob, 'recording.webm');
+        fd.append('location', location);
 
-        const transcribeRes = await axios.post(
-          `${API_BASE}/transcribe`,
-          formData,
-          { timeout: 15000 }
-        );
-
-        const transcript = transcribeRes.data.transcript;
-        telemetry.logEvent('INFO', 'STT', `Transcribed: "${transcript}"`);
+        const res = await axios.post(`${API_BASE}/transcribe`, fd, { timeout: 15000 });
+        const transcript = res.data.transcript;
         if (transcript && transcript !== '[Error transcribing audio]') {
           handleSendText(transcript);
         }
       } catch (err) {
-        telemetry.logEvent('FATAL', 'STT', `Transcribe error: ${err.message}`);
+        telemetry.setStatus({ state: 'ERROR', color: '🔴', text: 'Transcribe Error' });
         setIsThinking(false);
       }
     },
@@ -280,7 +188,7 @@ function App() {
   if (renderMode === 'loading') {
     return (
       <div className="loading-screen">
-        <div className="loading-spinner"></div>
+        <div className="loading-spinner" />
         <p>Initializing Maya...</p>
       </div>
     );
@@ -307,7 +215,7 @@ function App() {
 
       <ChatOverlay
         activeNpc={activeNpc}
-        npcDetails={npcDetails}
+        npcDetails={NPC_LIST}
         chatHistory={chatHistory}
         isThinking={isThinking}
         isPlaying={isPlaying}
@@ -358,10 +266,8 @@ function App() {
           value={activeNpc}
           onChange={(e) => setActiveNpc(e.target.value)}
         >
-          {Object.entries(npcDetails).map(([key, npc]) => (
-            <option key={key} value={key}>
-              {npc.name}
-            </option>
+          {Object.entries(NPC_LIST).map(([key, npc]) => (
+            <option key={key} value={key}>{npc.name}</option>
           ))}
         </select>
 
@@ -370,15 +276,9 @@ function App() {
           value={location}
           onChange={(e) => setLocation(e.target.value)}
         >
-          <option value="">📍 Auto Detect</option>
-          <option value="library">Library</option>
-          <option value="admin_block">Admin Block</option>
-          <option value="cse_department">CS Department</option>
-          <option value="canteen">Canteen</option>
-          <option value="sports_complex">Sports Complex</option>
-          <option value="auditorium">Auditorium</option>
-          <option value="hostel_block">Hostels</option>
-          <option value="parking">Parking</option>
+          {CAMPUS_LOCATIONS.map((loc) => (
+            <option key={loc.id} value={loc.id}>{loc.name}</option>
+          ))}
         </select>
 
         <button

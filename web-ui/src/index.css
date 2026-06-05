@@ -30,8 +30,6 @@
   --transition-slow: 400ms ease;
   --font-ui: 'Segoe UI', system-ui, -apple-system, sans-serif;
   --font-mono: 'Courier New', 'Consolas', 'SF Mono', monospace;
-  --sidebar-width: 280px;
-  --header-height: 60px;
 }
 
 html {
@@ -64,32 +62,7 @@ body {
   outline-offset: 2px;
 }
 
-::-webkit-scrollbar {
-  width: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background-color: var(--border-light);
-  border-radius: 10px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background-color: var(--text-muted);
-}
-
-[data-theme="light"] {
-  --bg-primary: #f5f5f5;
-  --bg-secondary: #ffffff;
-  --bg-tertiary: #e8e8e8;
-  --bg-elevated: #d0d0d0;
-  --border-default: #d0d0d0;
-  --border-light: #bbb;
-  --border-lighter: #aaa;
-  --text-primary: #1a1a1a;
-  --text-secondary: #666;
-  --text-muted: #999;
-}
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background-color: var(--border-light); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background-color: var(--text-muted); }
