@@ -47,30 +47,22 @@ async def generate_response(user_input: UserInput):
         history.append(types.Content(role="user", parts=[types.Part.from_text(text=injected)]))
 
         response = await state.client.aio.models.generate_content(
-            model="gemini-2.5-flash",
+            model=state.gemini_model,
             contents=history,
             config=types.GenerateContentConfig(
                 system_instruction=system_prompt,
                 max_output_tokens=300,
                 temperature=0.8,
             ),
+            timeout=15,
         )
 
         history.append(types.Content(role="model", parts=[types.Part.from_text(text=response.text)]))
         if len(history) > 10:
             del history[:-10]
 
-        spoken = clean_text(response.text)
-        voice = NPC_VOICES.get(npc, "en-US-AriaNeural")
-
         header = response.text[:1000] + "..." if len(response.text) > 1000 else response.text
         encoded = urllib.parse.quote(header)
-
-        return StreamingResponse(
-            stream_tts(spoken, voice),
-            media_type="audio/mpeg",
-            headers={"X-NPC-Response": encoded},
-        )
 
     except Exception as e:
         if history and history[-1].role == "model":
@@ -81,6 +73,25 @@ async def generate_response(user_input: UserInput):
         if "429" in err or "quota" in err or "exhausted" in err:
             raise HTTPException(status_code=429, detail="[ERROR_QUOTA_EXHAUSTED]")
         raise HTTPException(status_code=500, detail=str(e))
+
+    spoken = clean_text(response.text)
+    voice = NPC_VOICES.get(npc, "en-US-AriaNeural")
+
+    audio_bytes = bytearray()
+    try:
+        async for chunk in stream_tts(spoken, voice):
+            audio_bytes.extend(chunk)
+    except Exception as tts_e:
+        print(f"TTS stream error: {tts_e}")
+
+    async def _stream():
+        yield bytes(audio_bytes)
+
+    return StreamingResponse(
+        _stream(),
+        media_type="audio/mpeg",
+        headers={"X-NPC-Response": encoded},
+    )
 
 
 @router.post("/reset")

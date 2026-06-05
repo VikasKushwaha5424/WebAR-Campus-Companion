@@ -84,7 +84,13 @@ export default function MindARScene({ onTargetDetected, onTargetLost, isSpeaking
         <div className="ar-loading-overlay">
           <p style={{ color: '#f44336', fontSize: 14 }}>{error}</p>
           <p style={{ color: '#888', fontSize: 12, marginTop: 8 }}>
-            Make sure campus-targets.mind is in public/targets/
+            Make sure campus-targets.mind is in <code>public/targets/</code>
+          </p>
+          <p style={{ color: '#888', fontSize: 11, marginTop: 4 }}>
+            See <code>public/targets/COMPILE.md</code> to generate it from the SVG posters
+          </p>
+          <p style={{ color: '#555', fontSize: 11, marginTop: 12 }}>
+            Tip: Use the ARScene (desktop mode) to test without MindAR targets
           </p>
         </div>
       )}

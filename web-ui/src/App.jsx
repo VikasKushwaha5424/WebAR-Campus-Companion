@@ -21,10 +21,24 @@ function App() {
   const [location, setLocation] = useState('');
   const [renderMode, setRenderMode] = useState('loading');
   const [showDebug, setShowDebug] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(true);
+  const [pendingPlayback, setPendingPlayback] = useState(null);
 
   const telemetry = useTelemetry();
+  const { setStatus: setTelemetryStatus, logEvent: logTelemetryEvent, updateLatency: updateTelemetryLatency } = telemetry;
   const recognitionRef = useRef(null);
   const audioPlayerRef = useRef(new Audio());
+  const lastSendRef = useRef(0);
+  const blobUrlRef = useRef(null);
+  const nextMsgIdRef = useRef(Date.now());
+  const activeNpcRef = useRef(activeNpc);
+  const locationRef = useRef(location);
+  const sessionIdRef = useRef(
+    'session_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10)
+  );
+
+  activeNpcRef.current = activeNpc;
+  locationRef.current = location;
 
   const isDesktop = renderMode === 'desktop';
 
@@ -52,11 +66,18 @@ function App() {
     async (text) => {
       if (!text?.trim()) return;
 
-      const userMsg = { sender: 'user', text, npc: activeNpc };
+      const now = Date.now();
+      if (now - lastSendRef.current < 1000) return;
+      lastSendRef.current = now;
+
+      const currentNpc = activeNpcRef.current;
+      const currentLocation = locationRef.current;
+
+      const userMsg = { id: ++nextMsgIdRef.current, sender: 'user', text, npc: currentNpc };
       setChatHistory((prev) => [...prev, userMsg]);
       setIsThinking(true);
       setInputText('');
-      telemetry.setStatus({ state: 'PROCESSING', color: '🔵', text: 'AI Processing...' });
+      setTelemetryStatus({ state: 'PROCESSING', color: '🔵', text: 'AI Processing...' });
 
       const startTime = Date.now();
 
@@ -65,62 +86,90 @@ function App() {
           `${API_BASE}/generate`,
           {
             text,
-            npc_id: activeNpc,
-            location,
+            npc_id: currentNpc,
+            location: currentLocation,
             world_state: { environment: 'campus-ar', user_notes: '' },
-            session_id: 'default_user',
+            session_id: sessionIdRef.current,
           },
           { timeout: 10000, responseType: 'blob' }
         );
 
-        telemetry.setStatus({ state: 'RECEIVING', color: '🟣', text: 'Stream Connected' });
-
-        const blob = res.data;
-        if (blob.size === 0) throw new Error('STREAM_EMPTY');
+        setTelemetryStatus({ state: 'RECEIVING', color: '🟣', text: 'Stream Connected' });
 
         const raw = res.headers['x-npc-response'] || '';
         const decoded = decodeURIComponent(raw);
-        const aiMsg = { sender: 'ai', text: decoded || '[Audio Response]', npc: activeNpc };
+        const aiText = decoded || '[Audio Response]';
+        const aiMsg = { id: ++nextMsgIdRef.current, sender: 'ai', text: aiText, npc: currentNpc };
         setChatHistory((prev) => [...prev, aiMsg]);
 
-        const url = URL.createObjectURL(blob);
-        const player = audioPlayerRef.current;
-        player.src = url;
+        const blob = res.data;
+        if (blob.size > 0) {
+          if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+          const url = URL.createObjectURL(blob);
+          blobUrlRef.current = url;
 
-        player.onplay = () => {
-          telemetry.updateLatency(Date.now() - startTime);
-          telemetry.setStatus({ state: 'SPEAKING', color: '🟢', text: 'Speaker Active' });
+          const player = audioPlayerRef.current;
+          player.src = url;
+
+          player.onplay = () => {
+            updateTelemetryLatency(Date.now() - startTime);
+            setTelemetryStatus({ state: 'SPEAKING', color: '🟢', text: 'Speaker Active' });
+            setIsThinking(false);
+            setIsPlaying(true);
+            setPendingPlayback(null);
+          };
+
+          player.onended = () => {
+            setTelemetryStatus({ state: 'IDLE', color: '🟢', text: 'Ready' });
+            if (blobUrlRef.current === url) {
+              URL.revokeObjectURL(url);
+              blobUrlRef.current = null;
+            }
+            setIsPlaying(false);
+          };
+
+          const playPromise = player.play();
+          if (playPromise !== undefined) {
+            playPromise.catch(() => {
+              setTelemetryStatus({ state: 'IDLE', color: '🟠', text: 'Tap to hear response' });
+              setIsThinking(false);
+              setPendingPlayback(url);
+            });
+          }
+        } else {
+          setTelemetryStatus({ state: 'IDLE', color: '🟢', text: 'Ready' });
           setIsThinking(false);
-          setIsPlaying(true);
-        };
-
-        player.onended = () => {
-          telemetry.setStatus({ state: 'IDLE', color: '🟢', text: 'Ready' });
-          URL.revokeObjectURL(url);
-          setIsPlaying(false);
-        };
-
-        player.play().catch(() => {
-          telemetry.setStatus({ state: 'ERROR', color: '🟠', text: 'Playback Blocked' });
-          setIsThinking(false);
-          setIsPlaying(false);
-        });
+        }
       } catch (error) {
         setIsThinking(false);
         setIsPlaying(false);
-        telemetry.setStatus({ state: 'ERROR', color: '🔴', text: 'API Error' });
+        setTelemetryStatus({ state: 'ERROR', color: '🔴', text: 'API Error' });
         const msg = error.response?.status === 429
           ? 'AI Quota Exhausted. Switching to Offline Mode.'
           : 'Connection error. Is the backend running?';
-        setChatHistory((prev) => [...prev, { sender: 'ai', text: msg, npc: activeNpc }]);
+        setChatHistory((prev) => [...prev, { id: ++nextMsgIdRef.current, sender: 'ai', text: msg, npc: currentNpc }]);
       }
     },
-    [activeNpc, location, telemetry]
+    [setTelemetryStatus, logTelemetryEvent, updateTelemetryLatency]
   );
+
+  const resumePlayback = useCallback(() => {
+    if (!pendingPlayback) return;
+    const player = audioPlayerRef.current;
+    if (player.src !== pendingPlayback) return;
+    player.play().catch(() => {
+      setPendingPlayback(null);
+    });
+  }, [pendingPlayback]);
 
   useEffect(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) return;
+    if (!SR) {
+      setSpeechSupported(false);
+      logTelemetryEvent('WARN', 'STT', 'SpeechRecognition unavailable (use Chrome/Edge)');
+      return;
+    }
+    setSpeechSupported(true);
 
     recognitionRef.current?.abort();
 
@@ -131,7 +180,7 @@ function App() {
 
     recognition.onstart = () => {
       setIsListening(true);
-      telemetry.setStatus({ state: 'LISTENING', color: '🟡', text: 'Mic Active' });
+      setTelemetryStatus({ state: 'LISTENING', color: '🟡', text: 'Mic Active' });
     };
 
     recognition.onend = () => setIsListening(false);
@@ -143,30 +192,34 @@ function App() {
     };
 
     recognition.onerror = (e) => {
-      telemetry.setStatus({ state: 'ERROR', color: '🔴', text: 'Mic Error' });
+      setTelemetryStatus({ state: 'ERROR', color: '🔴', text: 'Mic Error' });
       setIsListening(false);
     };
 
     recognitionRef.current = recognition;
 
     return () => recognition.abort();
-  }, [handleSendText, telemetry]);
+  }, [handleSendText, setTelemetryStatus, logTelemetryEvent]);
 
   const toggleListen = useCallback(() => {
+    if (!speechSupported) {
+      setTelemetryStatus({ state: 'ERROR', color: '🟠', text: 'Voice not supported in this browser' });
+      return;
+    }
     const r = recognitionRef.current;
     if (!r) return;
     if (isListening) {
       r.stop();
-      telemetry.setStatus({ state: 'IDLE', color: '🟢', text: 'Ready' });
+      setTelemetryStatus({ state: 'IDLE', color: '🟢', text: 'Ready' });
     } else {
-      telemetry.setStatus({ state: 'LISTENING', color: '🟡', text: 'Requesting Mic...' });
+      setTelemetryStatus({ state: 'LISTENING', color: '🟡', text: 'Requesting Mic...' });
       r.start();
     }
-  }, [isListening, telemetry]);
+  }, [isListening, setTelemetryStatus, speechSupported]);
 
   const handleAudioBlob = useCallback(
     async (blob) => {
-      telemetry.setStatus({ state: 'LISTENING', color: '🟡', text: 'Transcribing...' });
+      setTelemetryStatus({ state: 'LISTENING', color: '🟡', text: 'Transcribing...' });
       try {
         const fd = new FormData();
         fd.append('file', blob, 'recording.webm');
@@ -178,11 +231,11 @@ function App() {
           handleSendText(transcript);
         }
       } catch (err) {
-        telemetry.setStatus({ state: 'ERROR', color: '🔴', text: 'Transcribe Error' });
+        setTelemetryStatus({ state: 'ERROR', color: '🔴', text: 'Transcribe Error' });
         setIsThinking(false);
       }
     },
-    [location, handleSendText, telemetry]
+    [location, handleSendText, setTelemetryStatus]
   );
 
   if (renderMode === 'loading') {
@@ -200,14 +253,14 @@ function App() {
         <WebXRScene
           onCharacterClick={toggleListen}
           isSpeaking={isPlaying}
-          onReady={() => telemetry.logEvent('INFO', 'XR', 'WebXR immersive AR active')}
+          onReady={() => logTelemetryEvent('INFO', 'XR', 'WebXR immersive AR active')}
         />
       ) : renderMode === 'mobile-ar' ? (
         <MindARScene
           onTargetDetected={(loc) => setLocation(loc)}
           onTargetLost={() => {}}
           isSpeaking={isPlaying}
-          onReady={() => telemetry.logEvent('INFO', 'AR', 'MindAR initialized')}
+          onReady={() => logTelemetryEvent('INFO', 'AR', 'MindAR initialized')}
         />
       ) : (
         <ARScene onCharacterClick={toggleListen} isSpeaking={isPlaying} />
@@ -227,10 +280,11 @@ function App() {
               <button
                 className={`mic-button ${isListening ? 'listening' : ''}`}
                 onClick={toggleListen}
-                disabled={isThinking}
+                disabled={isThinking || !speechSupported}
                 aria-label={isListening ? 'Stop listening' : 'Start voice input'}
+                title={!speechSupported ? 'Voice input requires Chrome/Edge' : ''}
               >
-                {isListening ? '🔴' : '🎤'}
+                {!speechSupported ? '⚠️' : isListening ? '🔴' : '🎤'}
               </button>
               <input
                 type="text"
@@ -249,6 +303,11 @@ function App() {
                 Send
               </button>
             </div>
+            {!speechSupported && (
+              <div className="browser-warning">
+                Voice input requires Chrome or Microsoft Edge
+              </div>
+            )}
             <DesktopControls
               onRequestMic={toggleListen}
               isListening={isListening}
@@ -259,6 +318,12 @@ function App() {
           <HoldToTalk onAudioBlob={handleAudioBlob} location={location} />
         )}
       </ChatOverlay>
+
+      {pendingPlayback && (
+        <div className="playback-overlay" onClick={resumePlayback}>
+          <button className="playback-button">🔊 Tap to hear response</button>
+        </div>
+      )}
 
       <div className="ar-top-bar">
         <select

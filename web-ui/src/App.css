@@ -215,6 +215,11 @@
   display: flex; align-items: center; justify-content: center; gap: 8px;
 }
 
+.browser-warning {
+  text-align: center; padding: 6px; margin-top: 4px;
+  color: #ff9800; font-size: 12px; font-family: var(--font-ui);
+}
+
 .desktop-hint kbd {
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -291,6 +296,28 @@
 .equalizer-bar:nth-child(3) { animation-delay: 0.3s; height: 100%; }
 
 /* --- Mobile Tweaks --- */
+.playback-overlay {
+  position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%);
+  z-index: 40; pointer-events: auto;
+  animation: messageSlideIn 0.3s ease both;
+}
+
+.playback-button {
+  padding: 14px 32px; border-radius: 28px; border: none;
+  background: linear-gradient(135deg, #4CAF50, #388E3C);
+  color: #fff; font-weight: 700; font-size: 16px;
+  cursor: pointer; box-shadow: 0 4px 24px rgba(76, 175, 80, 0.4);
+  font-family: var(--font-ui);
+}
+
+.playback-button:hover {
+  transform: scale(1.03);
+}
+
+.playback-button:active {
+  transform: scale(0.97);
+}
+
 @media (max-width: 767px) {
   .chat-overlay { max-height: 50vh; }
   .chat-overlay-messages { max-height: 35vh; padding: 8px 8px 4px; }

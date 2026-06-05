@@ -64,7 +64,7 @@ export default function ChatOverlay({
               ? streamed[msg.text] : msg.text;
 
             return (
-              <div key={idx} className={`message-bubble ${msg.sender}`}>
+              <div key={msg.id ?? idx} className={`message-bubble ${msg.sender}`}>
                 <strong>
                   {msg.sender === 'user' ? 'You' : activeName}
                 </strong>

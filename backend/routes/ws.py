@@ -61,7 +61,7 @@ async def npc_websocket(websocket: WebSocket, npc_id: str, session_id: str):
 
             t0 = time.time()
             response = await state.client.aio.models.generate_content(
-                model="gemini-2.5-flash",
+                model=state.gemini_model,
                 contents=history,
                 config=types.GenerateContentConfig(
                     system_instruction=system_prompt,
