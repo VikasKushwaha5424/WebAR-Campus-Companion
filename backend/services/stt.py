@@ -6,25 +6,23 @@ import time
 from faster_whisper import WhisperModel
 
 _stt_model = None
-_stt_loading = False
+_stt_lock = asyncio.Lock()
 
 
 async def get_model():
-    global _stt_model, _stt_loading
+    global _stt_model
     if _stt_model is not None:
         return _stt_model
-    if _stt_loading:
-        while _stt_model is None:
-            await asyncio.sleep(0.1)
-        return _stt_model
-    _stt_loading = True
-    print("[STT] Loading Whisper model (first boot may take a moment)...")
-    t0 = time.time()
-    _stt_model = await asyncio.to_thread(
-        WhisperModel, "small.en", device="cpu", compute_type="int8"
-    )
-    print(f"[STT] Whisper model loaded in {time.time() - t0:.1f}s")
-    _stt_loading = False
+    async with _stt_lock:
+        if _stt_model is not None:
+            return _stt_model
+        device = os.getenv("STT_DEVICE", "cpu")
+        print(f"[STT] Loading Whisper model (device={device})...")
+        t0 = time.time()
+        _stt_model = await asyncio.to_thread(
+            WhisperModel, "small.en", device=device, compute_type="int8"
+        )
+        print(f"[STT] Whisper model loaded in {time.time() - t0:.1f}s")
     return _stt_model
 
 

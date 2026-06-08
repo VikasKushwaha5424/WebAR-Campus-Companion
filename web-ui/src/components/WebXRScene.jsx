@@ -20,8 +20,8 @@ export default function WebXRScene({ onCharacterClick, isSpeaking, onReady }) {
           await scene.enterAR();
         } else {
           const session = await navigator.xr.requestSession('immersive-ar', {
-            requiredFeatures: ['local-floor'],
-            optionalFeatures: ['hit-test', 'hand-tracking'],
+            requiredFeatures: ['local'],
+            optionalFeatures: ['hit-test', 'hand-tracking', 'local-floor'],
           });
           enteredRef.current = true;
           session.addEventListener('end', () => {
@@ -86,7 +86,7 @@ export default function WebXRScene({ onCharacterClick, isSpeaking, onReady }) {
         ref={sceneRef}
         embedded
         xr-mode-ui="enabled: true"
-        renderer="colorManagement: true; antialias: true;"
+        renderer="colorManagement: true; antialias: false;"
         style={{
           position: 'fixed', top: 0, left: 0,
           width: '100%', height: '100%', zIndex: 0,
@@ -101,6 +101,8 @@ export default function WebXRScene({ onCharacterClick, isSpeaking, onReady }) {
           color="maya"
           name="Maya"
           isSpeaking={isSpeaking}
+          bobAnimation={false}
+          disableShadows
         />
 
         {/* Floating AI response panel */}

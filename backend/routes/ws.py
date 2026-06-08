@@ -71,14 +71,17 @@ async def npc_websocket(websocket: WebSocket, npc_id: str, session_id: str):
 
                 await websocket.send_json({"type": "user_transcript", "content": user_text})
                 prompt = f"[System World State: {world_state}] User says: {user_text}"
+                clean_input = user_text
 
             elif event == "gesture":
                 prompt = f"[System World State: {world_state}] The user performed a gesture: {payload}"
+                clean_input = str(payload)
             else:
                 if isinstance(payload, str) and not payload.strip():
                     await websocket.send_json({"type": "done"})
                     continue
                 prompt = f"[System World State: {world_state}] User says: {payload}"
+                clean_input = str(payload)
 
             messages = [{"role": "system", "content": system_prompt}]
             for msg in history[-10:]:
@@ -112,7 +115,7 @@ async def npc_websocket(websocket: WebSocket, npc_id: str, session_id: str):
                     loc_name = nav_destination.replace("_", " ").title() if nav_destination else "your destination"
                     reply_text = f"I'll guide you to the {loc_name}. Follow the arrow on your screen!"
 
-            history.append({"role": "user", "content": prompt})
+            history.append({"role": "user", "content": clean_input})
             hist_content = choice.content or f"[Navigation to {nav_destination}]"
             history.append({"role": "assistant", "content": hist_content})
             if len(history) > 10:
@@ -138,7 +141,7 @@ async def npc_websocket(websocket: WebSocket, npc_id: str, session_id: str):
                 await websocket.send_json({"type": "error", "message": "Audio stream failed."})
 
             tts_ms = (time.time() - t0) * 1000
-            print(f"[TIMING] STT: {stt_ms:.0f}ms | LLM: {tts_ms:.0f}ms | TTS: {tts_ms:.0f}ms")
+            print(f"[TIMING] STT: {stt_ms:.0f}ms | LLM: {llm_ms:.0f}ms | TTS: {tts_ms:.0f}ms")
             await websocket.send_json({"type": "done"})
 
     except WebSocketDisconnect:

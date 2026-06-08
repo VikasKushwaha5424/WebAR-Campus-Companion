@@ -74,7 +74,7 @@ export default function ARScene({ onCharacterClick, isSpeaking, destination, loc
       {trailPoints && trailPoints.length > 1 && (
         <a-entity>
           {trailPoints.map((pt, i) => {
-            const relBearing = originData && destData
+            const relBearing = originData
               ? (calculateBearing(originData.lat, originData.lng, pt.lat, pt.lng) - (originData.posterHeading || 0)) * Math.PI / 180
               : 0;
             const dist = i * 0.8;

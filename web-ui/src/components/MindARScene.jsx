@@ -3,18 +3,10 @@ import MayaCharacter from './MayaCharacter';
 import NavigationArrow from './NavigationArrow';
 import ARTrail from './ARTrail';
 import { CAMPUS_LOCATIONS } from '../data/config';
+import { AR_TARGETS } from '../data/targets';
 import { calculateBearing } from '../utils/navigation';
 
-const TARGET_LOCATIONS = [
-  { index: 0, id: 'library', name: 'Library' },
-  { index: 1, id: 'canteen', name: 'Canteen' },
-  { index: 2, id: 'cse_department', name: 'CS Department' },
-  { index: 3, id: 'admin_block', name: 'Admin Block' },
-  { index: 4, id: 'sports_complex', name: 'Sports Complex' },
-  { index: 5, id: 'auditorium', name: 'Auditorium' },
-  { index: 6, id: 'hostel_block', name: 'Hostels' },
-  { index: 7, id: 'parking', name: 'Parking' },
-];
+const TARGETS_URL = `${import.meta.env.BASE_URL}targets/campus-targets.mind`;
 
 export default function MindARScene({ onTargetDetected, onTargetLost, isSpeaking, onReady, destination, location, trailPoints }) {
   const sceneRef = useRef(null);
@@ -39,7 +31,7 @@ export default function MindARScene({ onTargetDetected, onTargetLost, isSpeaking
       const match = raw.match(/targetIndex:\s*(\d+)/);
       if (!match) return;
       const idx = parseInt(match[1]);
-      const loc = TARGET_LOCATIONS.find((t) => t.index === idx);
+      const loc = AR_TARGETS.find((t) => t.index === idx);
       if (loc) onTargetDetected?.(loc.id);
     };
 
@@ -107,7 +99,7 @@ export default function MindARScene({ onTargetDetected, onTargetLost, isSpeaking
       )}
       <a-scene
         ref={sceneRef}
-        mindar-image="imageTargetSrc: /targets/campus-targets.mind; showStats: false; autoStart: true;"
+        mindar-image={`imageTargetSrc: ${TARGETS_URL}; showStats: false; autoStart: true;`}
         embedded
         vr-mode-ui="enabled: false"
         renderer="colorManagement: true;"
@@ -118,7 +110,7 @@ export default function MindARScene({ onTargetDetected, onTargetLost, isSpeaking
       >
         <a-camera position="0 0 0" look-controls="enabled: false" far="100" />
 
-        {TARGET_LOCATIONS.map((loc) => (
+        {AR_TARGETS.map((loc) => (
           <a-entity
             key={loc.index}
             mindar-image-target={`targetIndex: ${loc.index}`}
@@ -132,6 +124,7 @@ export default function MindARScene({ onTargetDetected, onTargetLost, isSpeaking
               isSpeaking={isSpeaking}
               showLabel={false}
               bobAnimation={false}
+              disableShadows
             />
             {location === loc.id && destination && (
               <NavigationArrow

@@ -25,12 +25,14 @@ export default function useTrail() {
   const [savedTrails, setSavedTrails] = useState(loadTrails);
   const watchIdRef = useRef(null);
   const lastPointRef = useRef(null);
+  const isRecordingRef = useRef(false);
 
   const startTrail = useCallback((trailId) => {
     const id = trailId || 'trail_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
     setActiveTrailId(id);
     setTrailPoints([]);
     setIsRecording(true);
+    isRecordingRef.current = true;
     lastPointRef.current = null;
 
     if (navigator.geolocation) {
@@ -52,14 +54,14 @@ export default function useTrail() {
   }, []);
 
   const recordPoint = useCallback((lat, lng) => {
-    if (!isRecording) return;
+    if (!isRecordingRef.current) return;
     const pt = { lat, lng, timestamp: Date.now() };
     const last = lastPointRef.current;
     if (!last || haversine(last.lat, last.lng, lat, lng) >= 3) {
       lastPointRef.current = pt;
       setTrailPoints((prev) => [...prev, pt]);
     }
-  }, [isRecording]);
+  }, []);
 
   const stopTrail = useCallback(() => {
     if (watchIdRef.current !== null) {
@@ -67,6 +69,7 @@ export default function useTrail() {
       watchIdRef.current = null;
     }
     setIsRecording(false);
+    isRecordingRef.current = false;
 
     const id = activeTrailId;
     if (id && trailPoints.length > 0) {
@@ -84,6 +87,7 @@ export default function useTrail() {
       setActiveTrailId(trailId);
       setTrailPoints(trail.points);
       setIsRecording(false);
+      isRecordingRef.current = false;
       return trail.points;
     }
     return null;
@@ -111,6 +115,7 @@ export default function useTrail() {
     setActiveTrailId(null);
     setTrailPoints([]);
     setIsRecording(false);
+    isRecordingRef.current = false;
   }, []);
 
   useEffect(() => {

@@ -12,6 +12,7 @@ export default function MayaCharacter({
   isSpeaking = false,
   showLabel = true,
   bobAnimation = true,
+  disableShadows = false,
   id = 'character-root',
 }) {
   const hexColor = CHARACTER_COLORS[color] || color;
@@ -33,14 +34,14 @@ export default function MayaCharacter({
         height="0.8"
         depth="0.35"
         color={hexColor}
-        shadow="cast: true"
+        shadow={disableShadows ? undefined : "cast: true"}
       />
 
       <a-sphere
         position="0 1.35 0"
         radius="0.28"
         color="#FFCC80"
-        shadow="cast: true"
+        shadow={disableShadows ? undefined : "cast: true"}
       />
 
       <a-sphere position="-0.1 1.45 0.24" radius="0.04" color="#333" />

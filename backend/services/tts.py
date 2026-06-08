@@ -1,5 +1,6 @@
 import base64
 import asyncio
+import shutil
 import traceback
 
 import edge_tts
@@ -18,9 +19,19 @@ async def stream_tts(text: str, voice: str):
 
 async def stream_tts_pcm(text: str, voice: str, chunk_size: int = 4096):
     """
-    Stream TTS audio re-encoded as f32le PCM chunks (base64).
+    Stream TTS audio as PCM chunks (base64). Falls back to raw MP3 if ffmpeg is unavailable.
     Yields dicts with keys: data (b64), format, sample_rate.
     """
+    if not shutil.which("ffmpeg"):
+        print("[TTS] ffmpeg not found — falling back to raw MP3 stream")
+        async for raw in stream_tts(text, voice):
+            yield {
+                "data": base64.b64encode(raw).decode("utf-8"),
+                "format": "mp3",
+                "sample_rate": 24000,
+            }
+        return
+
     ffmpeg = await asyncio.create_subprocess_exec(
         "ffmpeg",
         "-i", "pipe:0",

@@ -39,13 +39,14 @@ app.add_middleware(
     expose_headers=["X-NPC-Response"],
 )
 
-from routes import health, locations, transcribe, chat, ws
+from routes import health, locations, transcribe, chat, ws, session
 
 app.include_router(health.router)
 app.include_router(locations.router)
 app.include_router(transcribe.router)
 app.include_router(chat.router)
 app.include_router(ws.router)
+app.include_router(session.router)
 
 
 @app.on_event("startup")

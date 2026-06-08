@@ -100,9 +100,9 @@ async def generate_response(user_input: UserInput):
                 loc_name = nav_destination.replace("_", " ").title() if nav_destination else "your destination"
                 reply_text = f"I'll guide you to the {loc_name}. Follow the arrow on your screen!"
 
-        history.append({"role": "user", "content": injected})
-        hist_content = choice.content or f"[Navigation to {nav_destination}]"
-        history.append({"role": "assistant", "content": hist_content})
+        history.append({"role": "user", "content": user_input.text})
+        assistant_msg = choice.model_dump(exclude_none=True)
+        history.append(assistant_msg)
         if len(history) > 10:
             del history[:-10]
 
@@ -110,10 +110,6 @@ async def generate_response(user_input: UserInput):
         encoded = urllib.parse.quote(header)
 
     except Exception as e:
-        if history and history[-1].get("role") == "assistant":
-            history.pop()
-        if history and history[-1].get("role") == "user":
-            history.pop()
         err = str(e).lower()
         if "429" in err or "quota" in err or "exhausted" in err:
             raise HTTPException(status_code=429, detail="[ERROR_QUOTA_EXHAUSTED]")
@@ -122,15 +118,12 @@ async def generate_response(user_input: UserInput):
     spoken = clean_text(reply_text)
     voice = NPC_VOICES.get(npc, "en-US-AriaNeural")
 
-    audio_bytes = bytearray()
-    try:
-        async for chunk in stream_tts(spoken, voice):
-            audio_bytes.extend(chunk)
-    except Exception as tts_e:
-        print(f"TTS stream error: {tts_e}")
-
     async def _stream():
-        yield bytes(audio_bytes)
+        try:
+            async for chunk in stream_tts(spoken, voice):
+                yield chunk
+        except Exception as tts_e:
+            print(f"TTS stream error: {tts_e}")
 
     response_headers = {"X-NPC-Response": encoded}
     if nav_destination:

@@ -7,6 +7,7 @@ import ARScene from './components/ARScene';
 import MindARScene from './components/MindARScene';
 import WebXRScene from './components/WebXRScene';
 import ChatOverlay from './components/ChatOverlay';
+import ChatInput from './components/ChatInput';
 import HoldToTalk from './components/HoldToTalk';
 import DesktopControls from './components/DesktopControls';
 import CampusMap from './components/CampusMap';
@@ -21,7 +22,6 @@ import './App.css';
 
 function App() {
   const [activeNpc, setActiveNpc] = useState('maya');
-  const [inputText, setInputText] = useState('');
   const [chatHistory, setChatHistory] = useState([]);
   const [isThinking, setIsThinking] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -34,6 +34,7 @@ function App() {
   const [showDebug, setShowDebug] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(true);
   const [pendingPlayback, setPendingPlayback] = useState(null);
+  const [insecureWarning, setInsecureWarning] = useState(null);
 
   const telemetry = useTelemetry();
   const { setStatus: setTelemetryStatus, logEvent: logTelemetryEvent, updateLatency: updateTelemetryLatency } = telemetry;
@@ -50,16 +51,17 @@ function App() {
     if (loc?.lat) recordPoint(loc.lat, loc.lng);
   }, [recordPoint]);
 
-  // Auto-navigate when class is imminent and no destination is set
+  // Auto-navigate when class is imminent and destination changes
   useEffect(() => {
-    if (autoDestination && !destination) {
+    if (autoDestination && autoDestination !== handledAutoDestRef.current) {
+      handledAutoDestRef.current = autoDestination;
       setDestination(autoDestination);
       setMapVisible(true);
       startTrail();
       const loc = CAMPUS_LOCATIONS.find((l) => l.id === autoDestination);
       if (loc?.lat) recordPoint(loc.lat, loc.lng);
     }
-  }, [autoDestination]);
+  }, [autoDestination, startTrail, recordPoint]);
 
   // Auto-show floor plan when scanning a building that has one
   useEffect(() => {
@@ -86,41 +88,89 @@ function App() {
   const audioPlayerRef = useRef(new Audio());
   const lastSendRef = useRef(0);
   const blobUrlRef = useRef(null);
+  const audioUnlockedRef = useRef(false);
+  const destinationRef = useRef(destination);
+  const handledAutoDestRef = useRef(null);
   const nextMsgIdRef = useRef(Date.now());
   const activeNpcRef = useRef(activeNpc);
   const locationRef = useRef(location);
-  const sessionIdRef = useRef(
-    'session_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10)
-  );
+  const sessionIdRef = useRef(null);
 
   activeNpcRef.current = activeNpc;
   locationRef.current = location;
+  destinationRef.current = destination;
 
   const isDesktop = renderMode === 'desktop';
 
   useEffect(() => {
     async function detectCapabilities() {
       setRenderMode('loading');
-      const hasCamera = !!navigator.mediaDevices?.getUserMedia;
+      const isSecure = window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      const isMobile = /Mobi|Android|iPhone/i.test(navigator.userAgent);
+
+      if (!isSecure && isMobile) {
+        setInsecureWarning('Camera requires HTTPS. Use ngrok or deploy to test AR on your phone. Add ?mode=desktop to bypass.');
+      }
+
+      if (isMobile && !import.meta.env.VITE_API_BASE) {
+        logTelemetryEvent('WARN', 'NET', 'VITE_API_BASE not set — mobile requests may fail without Vite proxy');
+      }
+
+      const urlParams = new URLSearchParams(window.location.search);
+      const modeOverride = urlParams.get('mode');
+      if (modeOverride && ['desktop', 'mobile-ar', 'webxr'].includes(modeOverride)) {
+        setRenderMode(modeOverride);
+        if (modeOverride !== 'mobile-ar') setInsecureWarning(null);
+        return;
+      }
+
       let webxr = false;
       try {
         webxr = navigator.xr
           ? await navigator.xr.isSessionSupported('immersive-ar')
           : false;
       } catch { webxr = false; }
+      if (webxr) { setRenderMode('webxr'); return; }
 
-      if (webxr) setRenderMode('webxr');
-      else if (hasCamera && /Mobi|Android|iPhone/i.test(navigator.userAgent))
-        setRenderMode('mobile-ar');
-      else
-        setRenderMode('desktop');
+      if (isMobile) {
+        let hasCamera = false;
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+          stream.getTracks().forEach(t => t.stop());
+          hasCamera = true;
+        } catch { /* no camera or blocked */ }
+        if (hasCamera) { setRenderMode('mobile-ar'); return; }
+      }
+
+      setRenderMode('desktop');
+
+      try {
+        const res = await axios.get(`${API_BASE}/init-session`, { timeout: 5000 });
+        sessionIdRef.current = res.data.session_id;
+      } catch {
+        sessionIdRef.current = 'fallback_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
+      }
     }
     detectCapabilities();
+  }, []);
+
+  const ensureAudioUnlocked = useCallback(() => {
+    if (audioUnlockedRef.current) return;
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const src = ctx.createBufferSource();
+      src.buffer = ctx.createBuffer(1, 1, 22050);
+      src.connect(ctx.destination);
+      src.start(0);
+      ctx.close();
+      audioUnlockedRef.current = true;
+    } catch {}
   }, []);
 
   const handleSendText = useCallback(
     async (text) => {
       if (!text?.trim()) return;
+      ensureAudioUnlocked();
 
       const now = Date.now();
       if (now - lastSendRef.current < 1000) return;
@@ -132,7 +182,6 @@ function App() {
       const userMsg = { id: ++nextMsgIdRef.current, sender: 'user', text, npc: currentNpc };
       setChatHistory((prev) => [...prev, userMsg]);
       setIsThinking(true);
-      setInputText('');
       setTelemetryStatus({ state: 'PROCESSING', color: '🔵', text: 'AI Processing...' });
 
       const startTime = Date.now();
@@ -147,7 +196,7 @@ function App() {
             world_state: { environment: 'campus-ar', user_notes: '' },
             session_id: sessionIdRef.current,
           },
-          { timeout: 10000, responseType: 'blob' }
+          { timeout: 30000, responseType: 'blob' }
         );
 
         setTelemetryStatus({ state: 'RECEIVING', color: '🟣', text: 'Stream Connected' });
@@ -214,17 +263,18 @@ function App() {
         setChatHistory((prev) => [...prev, { id: ++nextMsgIdRef.current, sender: 'ai', text: msg, npc: currentNpc }]);
       }
     },
-    [setTelemetryStatus, updateTelemetryLatency]
+    [setTelemetryStatus, updateTelemetryLatency, ensureAudioUnlocked, startTrail, recordPointFromLoc]
   );
 
   const resumePlayback = useCallback(() => {
     if (!pendingPlayback) return;
+    ensureAudioUnlocked();
     const player = audioPlayerRef.current;
     if (player.src !== pendingPlayback) return;
     player.play().catch(() => {
       setPendingPlayback(null);
     });
-  }, [pendingPlayback]);
+  }, [pendingPlayback, ensureAudioUnlocked]);
 
   useEffect(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -251,7 +301,6 @@ function App() {
 
     recognition.onresult = (e) => {
       const transcript = e.results[0][0].transcript;
-      setInputText(transcript);
       handleSendText(transcript);
     };
 
@@ -266,6 +315,7 @@ function App() {
   }, [handleSendText, setTelemetryStatus, logTelemetryEvent]);
 
   const toggleListen = useCallback(() => {
+    ensureAudioUnlocked();
     if (!speechSupported) {
       setTelemetryStatus({ state: 'ERROR', color: '🟠', text: 'Voice not supported in this browser' });
       return;
@@ -273,20 +323,21 @@ function App() {
     const r = recognitionRef.current;
     if (!r) return;
     if (isListening) {
-      r.stop();
+      try { r.stop(); } catch {}
       setTelemetryStatus({ state: 'IDLE', color: '🟢', text: 'Ready' });
     } else {
       setTelemetryStatus({ state: 'LISTENING', color: '🟡', text: 'Requesting Mic...' });
-      r.start();
+      try { r.start(); } catch {}
     }
-  }, [isListening, setTelemetryStatus, speechSupported]);
+  }, [isListening, setTelemetryStatus, speechSupported, ensureAudioUnlocked]);
 
   const handleAudioBlob = useCallback(
     async (blob) => {
       setTelemetryStatus({ state: 'LISTENING', color: '🟡', text: 'Transcribing...' });
       try {
         const fd = new FormData();
-        fd.append('file', blob, 'recording.webm');
+        const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
+        fd.append('file', blob, `recording.${ext}`);
         fd.append('location', location);
 
         const res = await axios.post(`${API_BASE}/transcribe`, fd, { timeout: 15000 });
@@ -307,12 +358,26 @@ function App() {
       <div className="loading-screen">
         <div className="loading-spinner" />
         <p>Initializing Maya...</p>
+        {insecureWarning && (
+          <p style={{ color: '#ff9800', fontSize: 12, marginTop: 12, textAlign: 'center', maxWidth: 300 }}>
+            {insecureWarning}
+          </p>
+        )}
       </div>
     );
   }
 
   return (
     <div className="app-container ar-mode">
+      {insecureWarning && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 999,
+          background: '#ff9800', color: '#000', textAlign: 'center',
+          padding: '6px 12px', fontSize: 12, fontWeight: 500,
+        }}>
+          {insecureWarning}
+        </div>
+      )}
       {renderMode === 'webxr' ? (
         <WebXRScene
           onCharacterClick={toggleListen}
@@ -357,22 +422,7 @@ function App() {
               >
                 {!speechSupported ? '⚠️' : isListening ? '🔴' : '🎤'}
               </button>
-              <input
-                type="text"
-                value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !isThinking) handleSendText(inputText);
-                }}
-                placeholder="Type a message or hold Space to speak..."
-                disabled={isThinking}
-              />
-              <button
-                onClick={() => handleSendText(inputText)}
-                disabled={isThinking || !inputText.trim()}
-              >
-                Send
-              </button>
+              <ChatInput onSendText={handleSendText} isThinking={isThinking} />
             </div>
             {!speechSupported && (
               <div className="browser-warning">
