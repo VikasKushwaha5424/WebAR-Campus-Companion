@@ -10,6 +10,7 @@ export default defineConfig({
     },
   },
   server: {
+    allowedHosts: true,
     proxy: {
       '/generate': { target: 'http://127.0.0.1:8000', changeOrigin: true },
       '/transcribe': { target: 'http://127.0.0.1:8000', changeOrigin: true },
