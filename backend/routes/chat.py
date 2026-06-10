@@ -69,6 +69,24 @@ async def generate_response(user_input: UserInput):
                 else f"the {user_input.location.replace('_', ' ').title()} area"
             )
 
+        route_data = world_state.pop("route", {})
+        if route_data and isinstance(route_data, dict):
+            next_step = route_data.get("next_step", "")
+            turn = route_data.get("turn", "")
+            dest_status = route_data.get("destination_status", "en_route")
+            parts = []
+            if next_step:
+                parts.append(f"Next: {next_step}")
+            if turn:
+                parts.append(f"Turn: {turn}")
+            if dest_status == "arrived":
+                parts.append("The user has arrived at their destination.")
+            elif dest_status == "off_route":
+                parts.append("The user may be off-route. Encourage them to scan the nearest poster.")
+            else:
+                parts.append("The user is en route.")
+            world_state["route_info"] = "; ".join(parts)
+
         injected = f"[System World State: {json.dumps(world_state)}] User says: {user_input.text}"
 
         messages = [{"role": "system", "content": system_prompt}]

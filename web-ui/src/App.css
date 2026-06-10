@@ -1021,3 +1021,72 @@
   .location-badge { font-size: 11px; padding: 4px 12px; }
   .debug-panel { width: 280px; right: 8px; }
 }
+
+.off-route-banner {
+  position: fixed;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 999;
+  background: rgba(244, 67, 54, 0.9);
+  color: #fff;
+  padding: 10px 20px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: center;
+  box-shadow: 0 4px 12px rgba(244, 67, 54, 0.4);
+  max-width: 90%;
+  animation: messageSlideIn 0.3s ease-out;
+}
+
+.arrived-banner {
+  position: fixed;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 999;
+  background: rgba(76, 175, 80, 0.9);
+  color: #fff;
+  padding: 10px 20px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: center;
+  box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
+  max-width: 90%;
+  animation: messageSlideIn 0.3s ease-out;
+}
+
+.waypoint-hud {
+  position: fixed;
+  bottom: 100px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 8px 16px;
+  border-radius: 20px;
+  backdrop-filter: blur(4px);
+}
+
+.waypoint-direction {
+  color: #FF8C00;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.waypoint-distance {
+  color: #fff;
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+.waypoint-progress {
+  color: #aaa;
+  font-size: 11px;
+  opacity: 0.6;
+}

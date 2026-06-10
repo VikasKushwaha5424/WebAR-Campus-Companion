@@ -1,19 +1,69 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 import MayaCharacter from './MayaCharacter';
 import NavigationArrow from './NavigationArrow';
 import ARTrail from './ARTrail';
-import { CAMPUS_LOCATIONS } from '../data/config';
-import { calculateBearing } from '../utils/navigation';
+import { CAMPUS_LOCATIONS, CAMPUS_NODES } from '../data/config';
+import { calculateBearing, calculateDistance, computeTurnAngle, getDirectionLabel } from '../utils/navigation';
+import { getNodeById } from '../utils/pathfinding';
 
-export default function ARScene({ onCharacterClick, isSpeaking, destination, location, trailPoints }) {
+export default function ARScene({
+  onCharacterClick, isSpeaking, destination, location, trailPoints,
+  currentRoute, nextWaypointIndex, routeStatus, currentNodeId,
+}) {
   const sceneRef = useRef(null);
 
   const getLocData = (id) => CAMPUS_LOCATIONS.find((l) => l.id === id);
-  const originData = getLocData(location);
-  const destData = getLocData(destination);
-  const arrowBearing = originData && destData
-    ? calculateBearing(originData.lat, originData.lng, destData.lat, destData.lng) - (originData.posterHeading || 0)
-    : 0;
+  const destLoc = destination ? CAMPUS_LOCATIONS.find((l) => l.id === destination) : null;
+  const currLoc = getLocData(location);
+
+  const waypointData = useMemo(() => {
+    if (!currentRoute || !currentRoute.length || nextWaypointIndex < 1 || nextWaypointIndex >= currentRoute.length) {
+      return null;
+    }
+    const nextNodeId = currentRoute[nextWaypointIndex];
+    const nextNode = getNodeById(nextNodeId, CAMPUS_NODES);
+    if (!nextNode) return null;
+
+    const prevNodeId = currentRoute[nextWaypointIndex - 1];
+    const prevNode = getNodeById(prevNodeId, CAMPUS_NODES);
+    const currNode = currentNodeId ? getNodeById(currentNodeId, CAMPUS_NODES) : null;
+    const originNode = currNode || prevNode;
+
+    const bearing = calculateBearing(
+      originNode.lat, originNode.lng,
+      nextNode.lat, nextNode.lng
+    );
+
+    const dist = calculateDistance(
+      originNode.lat, originNode.lng,
+      nextNode.lat, nextNode.lng
+    );
+
+    let directionLabel = '';
+    if (currNode && prevNode && currNode !== prevNode) {
+      const turnAngle = computeTurnAngle(
+        prevNode.lat, prevNode.lng,
+        currNode.lat, currNode.lng,
+        nextNode.lat, nextNode.lng
+      );
+      directionLabel = getDirectionLabel(turnAngle);
+    }
+
+    return { nextNode, bearing, distance: dist, directionLabel };
+  }, [currentRoute, nextWaypointIndex, currentNodeId]);
+
+  const arrowBearing = useMemo(() => {
+    if (currLoc && waypointData) {
+      return waypointData.bearing - (currLoc.posterHeading || 0);
+    }
+    if (currLoc && destLoc) {
+      return calculateBearing(currLoc.lat, currLoc.lng, destLoc.lat, destLoc.lng) - (currLoc.posterHeading || 0);
+    }
+    return 0;
+  }, [currLoc, destLoc, waypointData]);
+
+  const arrowDistance = waypointData?.distance || 0;
+  const renderArrow = destination && (routeStatus === 'active' || routeStatus === 'arrived' || routeStatus === 'off_route');
 
   useEffect(() => {
     const scene = sceneRef.current;
@@ -35,77 +85,105 @@ export default function ARScene({ onCharacterClick, isSpeaking, destination, loc
   }, [onCharacterClick]);
 
   return (
-    <a-scene
-      ref={sceneRef}
-      embedded
-      vr-mode-ui="enabled: false"
-      ar-mode-ui="enabled: false"
-      style={{
-        position: 'fixed', top: 0, left: 0,
-        width: '100%', height: '100%', zIndex: 0,
-      }}
-    >
-      <a-entity
-        environment="preset: forest; dressingAmount: 3; groundColor: #5a7a3a; grid: none"
-      />
-
-      <a-circle
-        position="0 -0.01 0" radius="8"
-        rotation="-90 0 0" color="#6B8E23"
-        shadow="receive: true"
-      />
-
-      <MayaCharacter
-        id="maya-desktop"
-        position="0 0 -4"
-        color="maya"
-        name="Maya"
-        isSpeaking={isSpeaking}
-      />
-
-      {destination && (
-        <NavigationArrow
-          rotationY={arrowBearing}
-          visible={true}
-          color="#FF8C00"
+    <>
+      <a-scene
+        ref={sceneRef}
+        embedded
+        vr-mode-ui="enabled: false"
+        ar-mode-ui="enabled: false"
+        style={{
+          position: 'fixed', top: 0, left: 0,
+          width: '100%', height: '100%', zIndex: 0,
+        }}
+      >
+        <a-entity
+          environment="preset: forest; dressingAmount: 3; groundColor: #5a7a3a; grid: none"
         />
+
+        <a-circle
+          position="0 -0.01 0" radius="8"
+          rotation="-90 0 0" color="#6B8E23"
+          shadow="receive: true"
+        />
+
+        <MayaCharacter
+          id="maya-desktop"
+          position="0 0 -4"
+          color="maya"
+          name="Maya"
+          isSpeaking={isSpeaking}
+        />
+
+        {renderArrow && (
+          <NavigationArrow
+            rotationY={arrowBearing}
+            visible={true}
+            color={routeStatus === 'off_route' ? '#f44336' : '#FF8C00'}
+            directionLabel={waypointData?.directionLabel || ''}
+            distanceToNext={arrowDistance}
+            isOffRoute={routeStatus === 'off_route'}
+          />
+        )}
+
+        {trailPoints && trailPoints.length > 1 && (
+          <a-entity>
+            {trailPoints.map((pt, i) => {
+              const relBearing = currLoc
+                ? (calculateBearing(currLoc.lat, currLoc.lng, pt.lat, pt.lng) - (currLoc.posterHeading || 0)) * Math.PI / 180
+                : 0;
+              const dist = i * 0.8;
+              const x = Math.sin(relBearing) * dist;
+              const z = -Math.cos(relBearing) * dist - 4;
+              return (
+                <a-sphere
+                  key={i}
+                  position={`${x} 0.1 ${z}`}
+                  radius="0.12"
+                  color="#00FFFF"
+                  emissive="#00FFFF"
+                  emissive-intensity="0.4"
+                  opacity="0.6"
+                />
+              );
+            })}
+          </a-entity>
+        )}
+
+        <a-light type="ambient" color="#889" intensity="0.6" />
+        <a-light
+          type="directional" intensity="0.8"
+          position="5 8 -3" cast-shadow="true"
+        />
+
+        <a-camera
+          position="0 1.6 2"
+          look-controls="enabled: true"
+          wasd-controls="enabled: true"
+        />
+      </a-scene>
+
+      {routeStatus === 'off_route' && (
+        <div className="off-route-banner">
+          You may have wandered off the path! Scan the nearest campus poster.
+        </div>
+      )}
+      {routeStatus === 'arrived' && (
+        <div className="arrived-banner">
+          You have arrived at your destination!
+        </div>
       )}
 
-      {trailPoints && trailPoints.length > 1 && (
-        <a-entity>
-          {trailPoints.map((pt, i) => {
-            const relBearing = originData
-              ? (calculateBearing(originData.lat, originData.lng, pt.lat, pt.lng) - (originData.posterHeading || 0)) * Math.PI / 180
-              : 0;
-            const dist = i * 0.8;
-            const x = Math.sin(relBearing) * dist;
-            const z = -Math.cos(relBearing) * dist - 4;
-            return (
-              <a-sphere
-                key={i}
-                position={`${x} 0.1 ${z}`}
-                radius="0.12"
-                color="#00FFFF"
-                emissive="#00FFFF"
-                emissive-intensity="0.4"
-                opacity="0.6"
-              />
-            );
-          })}
-        </a-entity>
+      {renderArrow && waypointData && (
+        <div className="waypoint-hud">
+          <span className="waypoint-direction">{waypointData.directionLabel}</span>
+          <span className="waypoint-distance">{Math.round(arrowDistance)}m</span>
+          {currentRoute && (
+            <span className="waypoint-progress">
+              Step {nextWaypointIndex}/{currentRoute.length - 1}
+            </span>
+          )}
+        </div>
       )}
-
-      <a-light type="ambient" color="#889" intensity="0.6" />
-      <a-light
-        type="directional" intensity="0.8"
-        position="5 8 -3" cast-shadow="true"
-      />
-
-      <a-camera
-        position="0 1.6 2"
-        look-controls="enabled: true"
-        wasd-controls="enabled: true"
-      />
-    </a-scene>
+    </>
   );
 }

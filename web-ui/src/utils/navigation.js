@@ -18,4 +18,26 @@ export function calculateDistance(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+export function computeTurnAngle(prevLat, prevLng, currLat, currLng, nextLat, nextLng) {
+  const incoming = calculateBearing(prevLat, prevLng, currLat, currLng);
+  const outgoing = calculateBearing(currLat, currLng, nextLat, nextLng);
+  const angle = ((outgoing - incoming + 540) % 360) - 180;
+  return angle;
+}
+
+export function getDirectionLabel(angleDeg) {
+  if (angleDeg > 150 || angleDeg < -150) return 'Turn Around';
+  if (angleDeg > 30) return 'Turn Right';
+  if (angleDeg < -30) return 'Turn Left';
+  return 'Go Straight';
+}
+
+export function getTurnIntensity(angleDeg) {
+  const abs = Math.abs(angleDeg);
+  if (abs > 120) return 'sharp';
+  if (abs > 60) return 'moderate';
+  if (abs > 30) return 'gentle';
+  return 'straight';
+}
+
 

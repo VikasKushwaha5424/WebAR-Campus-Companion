@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { useGeolocation } from './useGeolocation';
 
 const STORAGE_KEY = 'maya_trails';
 
@@ -14,7 +15,6 @@ function saveTrails(trails) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(trails));
   } catch {
-    /* quota exceeded — silently fail */
   }
 }
 
@@ -23,9 +23,10 @@ export default function useTrail() {
   const [trailPoints, setTrailPoints] = useState([]);
   const [isRecording, setIsRecording] = useState(false);
   const [savedTrails, setSavedTrails] = useState(loadTrails);
-  const watchIdRef = useRef(null);
   const lastPointRef = useRef(null);
   const isRecordingRef = useRef(false);
+
+  const { latitude, longitude } = useGeolocation();
 
   const startTrail = useCallback((trailId) => {
     const id = trailId || 'trail_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
@@ -34,22 +35,6 @@ export default function useTrail() {
     setIsRecording(true);
     isRecordingRef.current = true;
     lastPointRef.current = null;
-
-    if (navigator.geolocation) {
-      watchIdRef.current = navigator.geolocation.watchPosition(
-        (pos) => {
-          const pt = { lat: pos.coords.latitude, lng: pos.coords.longitude, timestamp: Date.now() };
-          const last = lastPointRef.current;
-          if (!last || haversine(last.lat, last.lng, pt.lat, pt.lng) >= 3) {
-            lastPointRef.current = pt;
-            setTrailPoints((prev) => [...prev, pt]);
-          }
-        },
-        () => {},
-        { enableHighAccuracy: true, maximumInterval: 5000, distanceFilter: 3 }
-      );
-    }
-
     return id;
   }, []);
 
@@ -63,11 +48,17 @@ export default function useTrail() {
     }
   }, []);
 
-  const stopTrail = useCallback(() => {
-    if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
+  useEffect(() => {
+    if (!isRecordingRef.current || latitude === null || longitude === null) return;
+    const pt = { lat: latitude, lng: longitude, timestamp: Date.now() };
+    const last = lastPointRef.current;
+    if (!last || haversine(last.lat, last.lng, pt.lat, pt.lng) >= 3) {
+      lastPointRef.current = pt;
+      setTrailPoints((prev) => [...prev, pt]);
     }
+  }, [latitude, longitude]);
+
+  const stopTrail = useCallback(() => {
     setIsRecording(false);
     isRecordingRef.current = false;
 
@@ -108,22 +99,10 @@ export default function useTrail() {
   }, [activeTrailId]);
 
   const clearActiveTrail = useCallback(() => {
-    if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
-    }
     setActiveTrailId(null);
     setTrailPoints([]);
     setIsRecording(false);
     isRecordingRef.current = false;
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
-      }
-    };
   }, []);
 
   return {

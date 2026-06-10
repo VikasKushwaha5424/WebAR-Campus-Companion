@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { CAMPUS_NODES } from '../data/config';
+import { getNodeById } from '../utils/pathfinding';
 
 function createIcon(html, className = '') {
   return L.divIcon({
@@ -29,7 +31,7 @@ const POI_ICON = createIcon(
   `<div style="width:8px;height:8px;background:#00BCD4;border:1px solid #fff;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,0.3);"></div>`
 );
 
-export default function CampusMap({ currentId, destinationId, locations, pois, visible, onClose, trailPoints }) {
+export default function CampusMap({ currentId, destinationId, locations, pois, visible, onClose, trailPoints, currentRoute, nextWaypointIndex }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const markersRef = useRef({});
@@ -37,6 +39,8 @@ export default function CampusMap({ currentId, destinationId, locations, pois, v
   const destMarkerRef = useRef(null);
   const poiMarkersRef = useRef([]);
   const polylineRef = useRef(null);
+  const routePolylineRef = useRef(null);
+  const routeWaypointMarkersRef = useRef([]);
   const trailPolylineRef = useRef(null);
   const trailMarkersRef = useRef([]);
   const initializedRef = useRef(false);
@@ -154,6 +158,51 @@ export default function CampusMap({ currentId, destinationId, locations, pois, v
       polylineRef.current = null;
     }
 
+    if (routePolylineRef.current) {
+      map.removeLayer(routePolylineRef.current);
+      routePolylineRef.current = null;
+    }
+    routeWaypointMarkersRef.current.forEach((m) => map.removeLayer(m));
+    routeWaypointMarkersRef.current = [];
+
+    if (currentRoute && currentRoute.length >= 2) {
+      const coords = currentRoute
+        .map((nid) => getNodeById(nid, CAMPUS_NODES))
+        .filter(Boolean)
+        .map((n) => [n.lat, n.lng]);
+
+      if (coords.length >= 2) {
+        routePolylineRef.current = L.polyline(coords, {
+          color: '#FF8C00',
+          weight: 4,
+          opacity: 0.8,
+          dashArray: '6, 6',
+        }).addTo(map);
+
+        currentRoute.forEach((nid, i) => {
+          const node = getNodeById(nid, CAMPUS_NODES);
+          if (!node) return;
+          const isNext = nextWaypointIndex > 0 && i === nextWaypointIndex;
+          const isPassed = nextWaypointIndex > 0 && i < nextWaypointIndex;
+          const radius = isNext ? 6 : isPassed ? 3 : 4;
+          const fillColor = isNext ? '#FF8C00' : isPassed ? '#888' : '#aaa';
+          const m = L.circleMarker([node.lat, node.lng], {
+            radius,
+            color: isNext ? '#FF8C00' : '#aaa',
+            fillColor,
+            fillOpacity: 0.9,
+            weight: isNext ? 3 : 1,
+          }).addTo(map);
+          m.bindTooltip(node.label, { direction: 'top', offset: [0, -4] });
+          routeWaypointMarkersRef.current.push(m);
+        });
+
+        const bounds = L.latLngBounds(coords);
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
+        return;
+      }
+    }
+
     const current = locations.find((l) => l.id === currentId);
     const dest = locations.find((l) => l.id === destinationId);
 
@@ -174,7 +223,7 @@ export default function CampusMap({ currentId, destinationId, locations, pois, v
       );
       map.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
     }
-  }, [currentId, destinationId, locations]);
+  }, [currentId, destinationId, locations, currentRoute, nextWaypointIndex]);
 
   useEffect(() => {
     const map = mapRef.current;

@@ -1,24 +1,77 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import MayaCharacter from './MayaCharacter';
 import NavigationArrow from './NavigationArrow';
 import ARTrail from './ARTrail';
-import { CAMPUS_LOCATIONS } from '../data/config';
+import { CAMPUS_LOCATIONS, CAMPUS_NODES } from '../data/config';
 import { AR_TARGETS } from '../data/targets';
-import { calculateBearing } from '../utils/navigation';
+import { calculateBearing, calculateDistance, computeTurnAngle, getDirectionLabel } from '../utils/navigation';
+import { getNodeById, ARRIVAL_THRESHOLD } from '../utils/pathfinding';
 
 const TARGETS_URL = `${import.meta.env.BASE_URL}targets/campus-targets.mind`;
 
-export default function MindARScene({ onTargetDetected, onTargetLost, isSpeaking, onReady, destination, location, trailPoints }) {
+export default function MindARScene({
+  onTargetDetected, onTargetLost, isSpeaking, onReady,
+  destination, location, trailPoints,
+  currentRoute, nextWaypointIndex, routeStatus, currentNodeId,
+}) {
   const sceneRef = useRef(null);
   const [arReady, setArReady] = useState(false);
   const [error, setError] = useState(null);
 
+  const waypointData = useMemo(() => {
+    if (!currentRoute || !currentRoute.length || nextWaypointIndex < 1 || nextWaypointIndex >= currentRoute.length) {
+      return null;
+    }
+    const nextNodeId = currentRoute[nextWaypointIndex];
+    const nextNode = getNodeById(nextNodeId, CAMPUS_NODES);
+    if (!nextNode) return null;
+
+    const prevNodeId = currentRoute[nextWaypointIndex - 1];
+    const prevNode = getNodeById(prevNodeId, CAMPUS_NODES);
+    const currNode = currentNodeId ? getNodeById(currentNodeId, CAMPUS_NODES) : null;
+    const originNode = currNode || prevNode;
+
+    const bearing = calculateBearing(
+      originNode.lat, originNode.lng,
+      nextNode.lat, nextNode.lng
+    );
+
+    const dist = calculateDistance(
+      originNode.lat, originNode.lng,
+      nextNode.lat, nextNode.lng
+    );
+
+    let turnAngle = 0;
+    let directionLabel = '';
+    if (currNode && prevNode && currNode !== prevNode) {
+      turnAngle = computeTurnAngle(
+        prevNode.lat, prevNode.lng,
+        currNode.lat, currNode.lng,
+        nextNode.lat, nextNode.lng
+      );
+      directionLabel = getDirectionLabel(turnAngle);
+    }
+
+    return { nextNode, bearing, distance: dist, turnAngle, directionLabel };
+  }, [currentRoute, nextWaypointIndex, currentNodeId]);
+
   const getLocData = (id) => CAMPUS_LOCATIONS.find((l) => l.id === id);
-  const originData = getLocData(location);
-  const destData = getLocData(destination);
-  const arrowBearing = originData && destData
-    ? calculateBearing(originData.lat, originData.lng, destData.lat, destData.lng) - (originData.posterHeading || 0)
-    : 0;
+  const destLoc = destination ? CAMPUS_LOCATIONS.find((l) => l.id === destination) : null;
+
+  const arrowBearing = useMemo(() => {
+    const currLoc = getLocData(location);
+    if (waypointData) {
+      return waypointData.bearing - (currLoc?.posterHeading || 0);
+    }
+    if (currLoc && destLoc) {
+      return calculateBearing(currLoc.lat, currLoc.lng, destLoc.lat, destLoc.lng) - (currLoc.posterHeading || 0);
+    }
+    return 0;
+  }, [location, waypointData, destLoc]);
+
+  const arrowDistance = waypointData?.distance || 0;
+
+  const renderArrow = destination && (routeStatus === 'active' || routeStatus === 'arrived' || routeStatus === 'off_route');
 
   useEffect(() => {
     const scene = sceneRef.current;
@@ -97,6 +150,16 @@ export default function MindARScene({ onTargetDetected, onTargetLost, isSpeaking
           </p>
         </div>
       )}
+      {routeStatus === 'off_route' && arReady && (
+        <div className="off-route-banner">
+          You may have wandered off the path! Scan the nearest campus poster.
+        </div>
+      )}
+      {routeStatus === 'arrived' && arReady && (
+        <div className="arrived-banner">
+          You have arrived at your destination!
+        </div>
+      )}
       <a-scene
         ref={sceneRef}
         mindar-image={`imageTargetSrc: ${TARGETS_URL}; showStats: false; autoStart: true;`}
@@ -126,25 +189,40 @@ export default function MindARScene({ onTargetDetected, onTargetLost, isSpeaking
               bobAnimation={false}
               disableShadows
             />
-            {location === loc.id && destination && (
+            {location === loc.id && renderArrow && (
               <NavigationArrow
                 rotationY={arrowBearing}
                 visible={true}
-                color="#FF8C00"
+                color={routeStatus === 'off_route' ? '#f44336' : '#FF8C00'}
+                directionLabel={waypointData?.directionLabel || ''}
+                distanceToNext={arrowDistance}
+                isOffRoute={routeStatus === 'off_route'}
               />
             )}
-            {location === loc.id && originData && (
+            {location === loc.id && (
               <ARTrail
                 points={trailPoints}
-                originLat={originData.lat}
-                originLng={originData.lng}
-                originHeading={originData.posterHeading || 0}
+                originLat={getLocData(location)?.lat || 0}
+                originLng={getLocData(location)?.lng || 0}
+                originHeading={getLocData(location)?.posterHeading || 0}
                 maxRadius={30}
               />
             )}
           </a-entity>
         ))}
       </a-scene>
+
+      {renderArrow && waypointData && (
+        <div className="waypoint-hud">
+          <span className="waypoint-direction">{waypointData.directionLabel}</span>
+          <span className="waypoint-distance">{Math.round(arrowDistance)}m</span>
+          {currentRoute && (
+            <span className="waypoint-progress">
+              Step {nextWaypointIndex}/{currentRoute.length - 1}
+            </span>
+          )}
+        </div>
+      )}
     </>
   );
 }

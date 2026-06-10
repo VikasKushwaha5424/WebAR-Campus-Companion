@@ -15,9 +15,16 @@ import TrailUI from './components/TrailUI';
 import ClassStatus from './components/ClassStatus';
 import ETAOverlay from './components/ETAOverlay';
 import FloorPlanView from './components/FloorPlanView';
+import SettingsPanel from './components/SettingsPanel';
+import RoutePreview from './components/RoutePreview';
 import { hasFloorPlan } from './data/floorplans';
 import useTimetable from './hooks/useTimetable';
-import { API_BASE, NPC_LIST, CAMPUS_LOCATIONS, CAMPUS_POI } from './data/config';
+import usePreloader from './hooks/usePreloader';
+import useBattery from './hooks/useBattery';
+import { GeolocationProvider } from './hooks/useGeolocation';
+import { API_BASE, NPC_LIST, CAMPUS_LOCATIONS, CAMPUS_POI, CAMPUS_NODES, CAMPUS_EDGES } from './data/config';
+import { AR_TARGETS } from './data/targets';
+import { findPath, ARRIVAL_THRESHOLD, getNodeById } from './utils/pathfinding';
 import './App.css';
 
 function App() {
@@ -35,6 +42,15 @@ function App() {
   const [speechSupported, setSpeechSupported] = useState(true);
   const [pendingPlayback, setPendingPlayback] = useState(null);
   const [insecureWarning, setInsecureWarning] = useState(null);
+  const [currentRoute, setCurrentRoute] = useState(null);
+  const [nextWaypointIndex, setNextWaypointIndex] = useState(0);
+  const [routeStatus, setRouteStatus] = useState('idle');
+  const [currentNodeId, setCurrentNodeId] = useState(null);
+  const [routeFilters, setRouteFilters] = useState({ noStairs: false, wheelchair: false, noKeycard: false });
+  const [settingsVisible, setSettingsVisible] = useState(false);
+  const [showRoutePreview, setShowRoutePreview] = useState(false);
+  const [routeTotalDistance, setRouteTotalDistance] = useState(0);
+  const [routeQueue, setRouteQueue] = useState([]);
 
   const telemetry = useTelemetry();
   const { setStatus: setTelemetryStatus, logEvent: logTelemetryEvent, updateLatency: updateTelemetryLatency } = telemetry;
@@ -44,12 +60,235 @@ function App() {
 
   const timetable = useTimetable();
   const { currentClass, nextClass, minsToNext, autoDestination } = timetable;
+  const preloader = usePreloader();
+  const battery = useBattery();
+  const [lowPowerMode, setLowPowerMode] = useState(false);
+  useEffect(() => {
+    setLowPowerMode(battery.isLow);
+    if (battery.isLow && battery.supported) {
+      logTelemetryEvent('INFO', 'POWER', `Battery low: ${Math.round(battery.level * 100)}%`);
+    }
+  }, [battery.isLow, battery.level, battery.supported, logTelemetryEvent]);
 
   const recordPointFromLoc = useCallback((locId) => {
     if (!locId) return;
     const loc = CAMPUS_LOCATIONS.find((l) => l.id === locId);
     if (loc?.lat) recordPoint(loc.lat, loc.lng);
   }, [recordPoint]);
+
+  const resolveNodeId = useCallback((locId) => {
+    const target = AR_TARGETS.find((t) => t.id === locId);
+    return target?.nodeId || null;
+  }, []);
+
+  const clearRouteTimer = useCallback(() => {
+    if (routeTimeoutRef.current !== null) {
+      clearTimeout(routeTimeoutRef.current);
+      routeTimeoutRef.current = null;
+    }
+  }, []);
+
+  const startRouteTimer = useCallback((seconds) => {
+    clearRouteTimer();
+    if (seconds <= 0) return;
+    routeTimeoutRef.current = setTimeout(() => {
+      setRouteStatus('off_route');
+      logTelemetryEvent('WARN', 'ROUTE', 'User may be off-route — timeout expired');
+      routeTimeoutRef.current = null;
+    }, seconds * 1000);
+  }, [clearRouteTimer, logTelemetryEvent]);
+
+  const clearRoute = useCallback(() => {
+    clearRouteTimer();
+    setCurrentRoute(null);
+    setNextWaypointIndex(0);
+    setRouteStatus('idle');
+    try { sessionStorage.removeItem('maya_route'); } catch {}
+  }, [clearRouteTimer]);
+
+  const computeAndSetRoute = useCallback((fromNodeId, toNodeId) => {
+    if (!fromNodeId || !toNodeId) {
+      clearRoute();
+      return;
+    }
+    const f = routeFiltersRef.current;
+    const hasFilter = f.noStairs || f.wheelchair || f.noKeycard;
+    const filterFn = hasFilter
+      ? (e) => {
+          if (f.noStairs && e.isStairs) return false;
+          if (f.wheelchair && !e.hasRamp && !e.hasElevator) return false;
+          if (f.noKeycard && e.requiresKeycard) return false;
+          return true;
+        }
+      : null;
+    const result = findPath(fromNodeId, toNodeId, CAMPUS_EDGES, filterFn || undefined);
+    if (result.path.length < 2) {
+      clearRoute();
+      return;
+    }
+    setCurrentRoute(result.path);
+    setNextWaypointIndex(1);
+    setRouteTotalDistance(result.totalDistance);
+    setRouteStatus('idle');
+    setShowRoutePreview(true);
+    logTelemetryEvent('INFO', 'ROUTE', `${fromNodeId} → ${toNodeId} (${result.totalDistance}m, ${result.path.length} steps)`);
+    const walkSpeed = 1.4;
+    const legDist = result.path.length > 1
+      ? CAMPUS_EDGES.find(
+          (e) =>
+            (e.source === result.path[0] && e.target === result.path[1]) ||
+            (e.target === result.path[0] && e.source === result.path[1])
+        )?.distance || 0
+      : 0;
+    startRouteTimer(((legDist / walkSpeed) + 10) * 2);
+  }, [clearRoute, startRouteTimer, logTelemetryEvent]);
+
+  useEffect(() => {
+    currentRouteRef.current = currentRoute;
+    nextWaypointIndexRef.current = nextWaypointIndex;
+    routeStatusRef.current = routeStatus;
+    routeFiltersRef.current = routeFilters;
+  }, [currentRoute, nextWaypointIndex, routeStatus, routeFilters]);
+
+  useEffect(() => {
+    if (!currentRoute || routeStatus === 'idle') {
+      sessionStorage.removeItem('maya_route');
+      return;
+    }
+    const data = { currentRoute, nextWaypointIndex, routeStatus, currentNodeId };
+    try {
+      sessionStorage.setItem('maya_route', JSON.stringify(data));
+    } catch {}
+  }, [currentRoute, nextWaypointIndex, routeStatus, currentNodeId]);
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('maya_route');
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (saved?.currentRoute && saved?.routeStatus === 'active') {
+        setCurrentRoute(saved.currentRoute);
+        setNextWaypointIndex(saved.nextWaypointIndex || 1);
+        setRouteStatus(saved.routeStatus);
+        setCurrentNodeId(saved.currentNodeId || null);
+      }
+    } catch {}
+  }, []);
+
+  const requestAnnouncement = useCallback(async (text) => {
+    if (!text) return;
+    try {
+      const res = await axios.post(`${API_BASE}/announce`, {
+        text,
+        voice: 'en-US-AriaNeural',
+      }, { timeout: 15000, responseType: 'blob' });
+      const blob = res.data;
+      if (blob.size > 0) {
+        const url = URL.createObjectURL(blob);
+        const player = audioPlayerRef.current;
+        player.src = url;
+        const playPromise = player.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(() => {});
+        }
+      }
+    } catch {}
+  }, []);
+
+  const prevWaypointIndexRef = useRef(0);
+  const lastAnnouncementRef = useRef('');
+  useEffect(() => {
+    let text = '';
+    if (routeStatus === 'active' && nextWaypointIndex > 0 && currentRoute) {
+      const prev = prevWaypointIndexRef.current;
+      if (nextWaypointIndex !== prev) {
+        prevWaypointIndexRef.current = nextWaypointIndex;
+        const nextNode = getNodeById(currentRoute[nextWaypointIndex], CAMPUS_NODES);
+        if (nextNode) text = `Next step: walk toward the ${nextNode.label}.`;
+      }
+    } else if (routeStatus === 'off_route') {
+      text = 'You may have wandered off the path. Please scan the nearest campus poster so I can find you.';
+    } else if (routeStatus === 'arrived') {
+      text = 'You have arrived at your destination.';
+    }
+    if (text && text !== lastAnnouncementRef.current) {
+      lastAnnouncementRef.current = text;
+      requestAnnouncement(text);
+    }
+  }, [routeStatus, nextWaypointIndex, currentRoute, requestAnnouncement]);
+
+  useEffect(() => {
+    if (!destination || !currentNodeId) return;
+    const route = currentRouteRef.current;
+    if (route) return;
+    const toNode = resolveNodeId(destination);
+    if (currentNodeId !== toNode) computeAndSetRoute(currentNodeId, toNode);
+  }, [destination, currentNodeId, resolveNodeId, computeAndSetRoute]);
+
+  useEffect(() => {
+    if (routeStatus === 'arrived' && routeQueue.length > 0) {
+      const [nextDest, ...rest] = routeQueue;
+      setRouteQueue(rest);
+      setShowRoutePreview(false);
+      const fromNode = resolveNodeId(currentNodeId);
+      const toNode = resolveNodeId(nextDest);
+      if (fromNode && toNode) computeAndSetRoute(fromNode, toNode);
+    }
+  }, [routeStatus]);
+
+  useEffect(() => {
+    if (routeStatus === 'active' && currentRoute && currentNodeId) {
+      const toNode = currentRoute[currentRoute.length - 1];
+      computeAndSetRoute(currentNodeId, toNode);
+    }
+  }, [routeFilters, routeStatus, currentRoute, currentNodeId, computeAndSetRoute]);
+
+  const handleTargetDetected = useCallback((locId) => {
+    const nodeId = resolveNodeId(locId);
+    setLocation(locId);
+    setCurrentNodeId(nodeId);
+    recordPointFromLoc(locId);
+    if (locId === destinationRef.current) {
+      setDestination(null);
+    }
+
+    const rs = routeStatusRef.current;
+    const route = currentRouteRef.current;
+    const wpIdx = nextWaypointIndexRef.current;
+    if (rs !== 'active' || !route || wpIdx <= 0) return;
+
+    const expectedNodeId = route[wpIdx];
+    if (nodeId === expectedNodeId) {
+      const nextIdx = wpIdx + 1;
+      setNextWaypointIndex(nextIdx);
+      if (nextIdx >= route.length) {
+        setRouteStatus('arrived');
+        setDestination(null);
+        clearRouteTimer();
+        logTelemetryEvent('INFO', 'ROUTE', 'Destination reached');
+      } else {
+        const nextEdge = CAMPUS_EDGES.find(
+          (e) =>
+            (e.source === route[nextIdx - 1] && e.target === route[nextIdx]) ||
+            (e.target === route[nextIdx - 1] && e.source === route[nextIdx])
+        );
+        const walkSpeed = 1.4;
+        const legDist = nextEdge?.distance || 0;
+        startRouteTimer(((legDist / walkSpeed) + 10) * 2);
+        logTelemetryEvent('INFO', 'ROUTE', `Advanced to waypoint ${nextIdx}/${route.length - 1}`);
+      }
+    } else if (route.includes(nodeId)) {
+      const foundIdx = route.indexOf(nodeId);
+      if (foundIdx > wpIdx) {
+        setNextWaypointIndex(foundIdx + 1);
+        logTelemetryEvent('INFO', 'ROUTE', `Skipped ahead to waypoint ${foundIdx}`);
+      }
+    } else if (nodeId) {
+      const destNode = route[route.length - 1];
+      logTelemetryEvent('INFO', 'ROUTE', `Off path — recalculating from ${nodeId} to ${destNode}`);
+      computeAndSetRoute(nodeId, destNode);
+    }
+  }, [resolveNodeId, recordPointFromLoc, computeAndSetRoute, clearRouteTimer, logTelemetryEvent]);
 
   // Auto-navigate when class is imminent and destination changes
   useEffect(() => {
@@ -60,8 +299,11 @@ function App() {
       startTrail();
       const loc = CAMPUS_LOCATIONS.find((l) => l.id === autoDestination);
       if (loc?.lat) recordPoint(loc.lat, loc.lng);
+      const fromNode = resolveNodeId(locationRef.current);
+      const toNode = resolveNodeId(autoDestination);
+      if (fromNode && toNode) computeAndSetRoute(fromNode, toNode);
     }
-  }, [autoDestination, startTrail, recordPoint]);
+  }, [autoDestination, startTrail, recordPoint, resolveNodeId, computeAndSetRoute]);
 
   // Auto-show floor plan when scanning a building that has one
   useEffect(() => {
@@ -77,8 +319,29 @@ function App() {
     setMapVisible(true);
     setClassDismissed(false);
     startTrail();
-    recordPointFromLoc(location || locId);
-  }, [location, startTrail, recordPointFromLoc]);
+    recordPointFromLoc(locationRef.current || locId);
+    const fromNode = resolveNodeId(locationRef.current);
+    const toNode = resolveNodeId(locId);
+    if (fromNode && toNode) computeAndSetRoute(fromNode, toNode);
+  }, [startTrail, recordPointFromLoc, resolveNodeId, computeAndSetRoute]);
+
+  const enqueueDestination = useCallback((locId) => {
+    if (!locId) return;
+    setRouteQueue((prev) => {
+      if (prev.includes(locId)) return prev;
+      return [...prev, locId];
+    });
+  }, []);
+
+  const handleStartNavigation = useCallback(() => {
+    setRouteStatus('active');
+    setShowRoutePreview(false);
+  }, []);
+
+  const handleCancelRoute = useCallback(() => {
+    clearRoute();
+    setShowRoutePreview(false);
+  }, [clearRoute]);
 
   const handleClassDismiss = useCallback(() => {
     setClassDismissed(true);
@@ -95,6 +358,11 @@ function App() {
   const activeNpcRef = useRef(activeNpc);
   const locationRef = useRef(location);
   const sessionIdRef = useRef(null);
+  const routeTimeoutRef = useRef(null);
+  const currentRouteRef = useRef(null);
+  const nextWaypointIndexRef = useRef(0);
+  const routeStatusRef = useRef('idle');
+  const routeFiltersRef = useRef({ noStairs: false, wheelchair: false, noKeycard: false });
 
   activeNpcRef.current = activeNpc;
   locationRef.current = location;
@@ -150,6 +418,9 @@ function App() {
       } catch {
         sessionIdRef.current = 'fallback_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
       }
+
+      const targetsUrl = `${import.meta.env.BASE_URL}targets/campus-targets.mind`;
+      preloader.preload([targetsUrl]);
     }
     detectCapabilities();
   }, []);
@@ -193,7 +464,18 @@ function App() {
             text,
             npc_id: currentNpc,
             location: currentLocation,
-            world_state: { environment: 'campus-ar', user_notes: '' },
+            world_state: {
+              environment: 'campus-ar',
+              user_notes: '',
+              ...(routeStatusRef.current === 'active' && currentRouteRef.current ? {
+                route: {
+                  next_step: `Walk to ${getNodeById(currentRouteRef.current[nextWaypointIndexRef.current], CAMPUS_NODES)?.label || 'next point'}`,
+                  destination_status: routeStatusRef.current,
+                },
+              } : routeStatusRef.current === 'off_route' || routeStatusRef.current === 'arrived' ? {
+                route: { destination_status: routeStatusRef.current },
+              } : {}),
+            },
             session_id: sessionIdRef.current,
           },
           { timeout: 30000, responseType: 'blob' }
@@ -213,6 +495,9 @@ function App() {
           setMapVisible(true);
           const trailId = startTrail();
           recordPointFromLoc(currentLocation);
+          const fromNode = resolveNodeId(currentLocation);
+          const toNode = resolveNodeId(navDest);
+          if (fromNode && toNode) computeAndSetRoute(fromNode, toNode);
         }
 
         const blob = res.data;
@@ -263,7 +548,7 @@ function App() {
         setChatHistory((prev) => [...prev, { id: ++nextMsgIdRef.current, sender: 'ai', text: msg, npc: currentNpc }]);
       }
     },
-    [setTelemetryStatus, updateTelemetryLatency, ensureAudioUnlocked, startTrail, recordPointFromLoc]
+    [setTelemetryStatus, updateTelemetryLatency, ensureAudioUnlocked, startTrail, recordPointFromLoc, resolveNodeId, computeAndSetRoute]
   );
 
   const resumePlayback = useCallback(() => {
@@ -368,6 +653,7 @@ function App() {
   }
 
   return (
+    <GeolocationProvider>
     <div className="app-container ar-mode">
       {insecureWarning && (
         <div style={{
@@ -386,20 +672,30 @@ function App() {
         />
       ) : renderMode === 'mobile-ar' ? (
         <MindARScene
-          onTargetDetected={(loc) => {
-            setLocation(loc);
-            recordPointFromLoc(loc);
-            if (loc === destination) setDestination(null);
-          }}
+          onTargetDetected={handleTargetDetected}
           onTargetLost={() => {}}
           isSpeaking={isPlaying}
           destination={destination}
           location={location}
           trailPoints={trailPoints}
           onReady={() => logTelemetryEvent('INFO', 'AR', 'MindAR initialized')}
+          currentRoute={currentRoute}
+          nextWaypointIndex={nextWaypointIndex}
+          routeStatus={routeStatus}
+          currentNodeId={currentNodeId}
         />
       ) : (
-        <ARScene onCharacterClick={toggleListen} isSpeaking={isPlaying} destination={destination} location={location} trailPoints={trailPoints} />
+        <ARScene
+          onCharacterClick={toggleListen}
+          isSpeaking={isPlaying}
+          destination={destination}
+          location={location}
+          trailPoints={trailPoints}
+          currentRoute={currentRoute}
+          nextWaypointIndex={nextWaypointIndex}
+          routeStatus={routeStatus}
+          currentNodeId={currentNodeId}
+        />
       )}
 
       <ChatOverlay
@@ -460,7 +756,12 @@ function App() {
         />
       )}
 
-      <ETAOverlay destination={destination} visible={!!destination} />
+      <ETAOverlay
+        destination={destination}
+        visible={!!destination}
+        currentRoute={currentRoute}
+        nextWaypointIndex={nextWaypointIndex}
+      />
 
       <CampusMap
         currentId={location}
@@ -470,6 +771,8 @@ function App() {
         visible={mapVisible}
         onClose={() => setMapVisible(false)}
         trailPoints={trailPoints}
+        currentRoute={currentRoute}
+        nextWaypointIndex={nextWaypointIndex}
       />
 
       <FloorPlanView
@@ -500,6 +803,7 @@ function App() {
           value={location}
           onChange={(e) => {
             setLocation(e.target.value);
+            setCurrentNodeId(resolveNodeId(e.target.value));
             recordPointFromLoc(e.target.value);
           }}
         >
@@ -511,7 +815,7 @@ function App() {
         {destination && (
           <button
             className="stop-nav-btn"
-            onClick={() => { setDestination(null); setMapVisible(false); clearTrail(); }}
+            onClick={() => { setDestination(null); setMapVisible(false); clearTrail(); clearRoute(); }}
             title="Stop navigation"
           >
             ✕ Nav
@@ -547,6 +851,14 @@ function App() {
         />
 
         <button
+          className="settings-toggle"
+          onClick={() => setSettingsVisible((v) => !v)}
+          title="Route preferences"
+        >
+          ♿
+        </button>
+
+        <button
           className="debug-toggle"
           onClick={() => setShowDebug((v) => !v)}
           title="Toggle debug panel"
@@ -554,6 +866,23 @@ function App() {
           🛠️
         </button>
       </div>
+
+      {showRoutePreview && currentRoute && (
+        <RoutePreview
+          currentRoute={currentRoute}
+          totalDistance={routeTotalDistance}
+          onStart={handleStartNavigation}
+          onCancel={handleCancelRoute}
+        />
+      )}
+
+      {settingsVisible && (
+        <SettingsPanel
+          filters={routeFilters}
+          onToggle={(key) => setRouteFilters((prev) => ({ ...prev, [key]: !prev[key] }))}
+          onClose={() => setSettingsVisible(false)}
+        />
+      )}
 
       {showDebug && (
         <div className="debug-panel">
@@ -565,6 +894,7 @@ function App() {
         </div>
       )}
     </div>
+    </GeolocationProvider>
   );
 }
 
