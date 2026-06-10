@@ -43,7 +43,7 @@ export const CAMPUS_NODES = [
   // ── Micro-test graph (room → hallway → living_room) ──
   { id: 'room_a', label: 'Room A', type: 'anchor', lat: 0, lng: 0 },
   { id: 'hallway', label: 'Hallway', type: 'anchor', lat: 0.000045, lng: 0 },
-  { id: 'living_room', label: 'Living Room', type: 'anchor', lat: 0.000117, lng: 0 },
+  { id: 'living_room', label: 'Living Room', type: 'anchor', lat: 0.000045, lng: 0.000072 },
 
   // ── Anchor nodes (AR poster locations) ──
   { id: 'node_library', label: 'Library Entrance', type: 'anchor', lat: 17.782078, lng: 83.377342 },

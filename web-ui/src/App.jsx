@@ -21,10 +21,11 @@ import { hasFloorPlan } from './data/floorplans';
 import useTimetable from './hooks/useTimetable';
 import usePreloader from './hooks/usePreloader';
 import useBattery from './hooks/useBattery';
-import { GeolocationProvider } from './hooks/useGeolocation';
+import useGeolocation, { GeolocationProvider } from './hooks/useGeolocation';
 import { API_BASE, NPC_LIST, CAMPUS_LOCATIONS, CAMPUS_POI, CAMPUS_NODES, CAMPUS_EDGES } from './data/config';
 import { AR_TARGETS } from './data/targets';
 import { findPath, ARRIVAL_THRESHOLD, getNodeById } from './utils/pathfinding';
+import { calculateDistance, computeTurnAngle, getDirectionLabel } from './utils/navigation';
 import './App.css';
 
 function App() {
@@ -42,10 +43,46 @@ function App() {
   const [speechSupported, setSpeechSupported] = useState(true);
   const [pendingPlayback, setPendingPlayback] = useState(null);
   const [insecureWarning, setInsecureWarning] = useState(null);
-  const [currentRoute, setCurrentRoute] = useState(null);
-  const [nextWaypointIndex, setNextWaypointIndex] = useState(0);
-  const [routeStatus, setRouteStatus] = useState('idle');
-  const [currentNodeId, setCurrentNodeId] = useState(null);
+  const [currentRoute, setCurrentRoute] = useState(() => {
+    try {
+      const raw = sessionStorage.getItem('maya_route');
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (saved?.routeStatus === 'active') return saved.currentRoute;
+      }
+    } catch {}
+    return null;
+  });
+  const [nextWaypointIndex, setNextWaypointIndex] = useState(() => {
+    try {
+      const raw = sessionStorage.getItem('maya_route');
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (saved?.routeStatus === 'active') return saved.nextWaypointIndex || 1;
+      }
+    } catch {}
+    return 0;
+  });
+  const [routeStatus, setRouteStatus] = useState(() => {
+    try {
+      const raw = sessionStorage.getItem('maya_route');
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (saved?.routeStatus === 'active') return saved.routeStatus;
+      }
+    } catch {}
+    return 'idle';
+  });
+  const [currentNodeId, setCurrentNodeId] = useState(() => {
+    try {
+      const raw = sessionStorage.getItem('maya_route');
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (saved?.routeStatus === 'active') return saved.currentNodeId || null;
+      }
+    } catch {}
+    return null;
+  });
   const [routeFilters, setRouteFilters] = useState({ noStairs: false, wheelchair: false, noKeycard: false });
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [showRoutePreview, setShowRoutePreview] = useState(false);
@@ -62,6 +99,7 @@ function App() {
   const { currentClass, nextClass, minsToNext, autoDestination } = timetable;
   const preloader = usePreloader();
   const battery = useBattery();
+  const { latitude, longitude, accuracy } = useGeolocation();
   const [lowPowerMode, setLowPowerMode] = useState(false);
   useEffect(() => {
     setLowPowerMode(battery.isLow);
@@ -69,6 +107,17 @@ function App() {
       logTelemetryEvent('INFO', 'POWER', `Battery low: ${Math.round(battery.level * 100)}%`);
     }
   }, [battery.isLow, battery.level, battery.supported, logTelemetryEvent]);
+
+  useEffect(() => {
+    if (routeStatus !== 'active' || !latitude || !longitude || !currentRoute || nextWaypointIndex < 1) return;
+    const nextNodeId = currentRoute[nextWaypointIndex];
+    const nextNode = getNodeById(nextNodeId, CAMPUS_NODES);
+    if (!nextNode) return;
+    const dist = calculateDistance(latitude, longitude, nextNode.lat, nextNode.lng);
+    if (dist <= ARRIVAL_THRESHOLD && accuracy < 10) {
+      logTelemetryEvent('INFO', 'ROUTE', `GPS soft check passed at ${nextNode.label} (${Math.round(dist)}m)`);
+    }
+  }, [latitude, longitude, accuracy, routeStatus, currentRoute, nextWaypointIndex, logTelemetryEvent]);
 
   const recordPointFromLoc = useCallback((locId) => {
     if (!locId) return;
@@ -161,20 +210,6 @@ function App() {
     } catch {}
   }, [currentRoute, nextWaypointIndex, routeStatus, currentNodeId]);
 
-  useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem('maya_route');
-      if (!raw) return;
-      const saved = JSON.parse(raw);
-      if (saved?.currentRoute && saved?.routeStatus === 'active') {
-        setCurrentRoute(saved.currentRoute);
-        setNextWaypointIndex(saved.nextWaypointIndex || 1);
-        setRouteStatus(saved.routeStatus);
-        setCurrentNodeId(saved.currentNodeId || null);
-      }
-    } catch {}
-  }, []);
-
   const requestAnnouncement = useCallback(async (text) => {
     if (!text) return;
     try {
@@ -237,11 +272,11 @@ function App() {
   }, [routeStatus]);
 
   useEffect(() => {
-    if (routeStatus === 'active' && currentRoute && currentNodeId) {
-      const toNode = currentRoute[currentRoute.length - 1];
+    if (routeStatusRef.current === 'active' && currentRouteRef.current && currentNodeId) {
+      const toNode = currentRouteRef.current[currentRouteRef.current.length - 1];
       computeAndSetRoute(currentNodeId, toNode);
     }
-  }, [routeFilters, routeStatus, currentRoute, currentNodeId, computeAndSetRoute]);
+  }, [routeFilters, computeAndSetRoute]);
 
   const handleTargetDetected = useCallback((locId) => {
     const nodeId = resolveNodeId(locId);
@@ -255,10 +290,11 @@ function App() {
     const rs = routeStatusRef.current;
     const route = currentRouteRef.current;
     const wpIdx = nextWaypointIndexRef.current;
-    if (rs !== 'active' || !route || wpIdx <= 0) return;
+    if ((rs !== 'active' && rs !== 'off_route') || !route || wpIdx <= 0) return;
 
     const expectedNodeId = route[wpIdx];
     if (nodeId === expectedNodeId) {
+      setRouteStatus('active');
       const nextIdx = wpIdx + 1;
       setNextWaypointIndex(nextIdx);
       if (nextIdx >= route.length) {
@@ -467,12 +503,19 @@ function App() {
             world_state: {
               environment: 'campus-ar',
               user_notes: '',
-              ...(routeStatusRef.current === 'active' && currentRouteRef.current ? {
-                route: {
-                  next_step: `Walk to ${getNodeById(currentRouteRef.current[nextWaypointIndexRef.current], CAMPUS_NODES)?.label || 'next point'}`,
-                  destination_status: routeStatusRef.current,
-                },
-              } : routeStatusRef.current === 'off_route' || routeStatusRef.current === 'arrived' ? {
+              ...(routeStatusRef.current === 'active' && currentRouteRef.current ? (() => {
+                const route = currentRouteRef.current;
+                const wpIdx = nextWaypointIndexRef.current;
+                const nextNode = getNodeById(route[wpIdx], CAMPUS_NODES);
+                const currNode = wpIdx >= 1 ? getNodeById(route[wpIdx - 1], CAMPUS_NODES) : null;
+                const prevNode = wpIdx >= 2 ? getNodeById(route[wpIdx - 2], CAMPUS_NODES) : null;
+                let stepDesc = `Walk to ${nextNode?.label || 'next point'}`;
+                if (prevNode && currNode && nextNode) {
+                  const angle = computeTurnAngle(prevNode.lat, prevNode.lng, currNode.lat, currNode.lng, nextNode.lat, nextNode.lng);
+                  stepDesc = `${getDirectionLabel(angle)} at ${currNode.label}, then walk to ${nextNode.label}`;
+                }
+                return { route: { next_step: stepDesc, destination_status: 'active' } };
+              })() : routeStatusRef.current === 'off_route' || routeStatusRef.current === 'arrived' ? {
                 route: { destination_status: routeStatusRef.current },
               } : {}),
             },

@@ -34,9 +34,9 @@ export function getDirectionLabel(angleDeg) {
 
 export function getTurnIntensity(angleDeg) {
   const abs = Math.abs(angleDeg);
-  if (abs > 120) return 'sharp';
-  if (abs > 60) return 'moderate';
-  if (abs > 30) return 'gentle';
+  if (abs >= 120) return 'sharp';
+  if (abs >= 60) return 'moderate';
+  if (abs >= 30) return 'gentle';
   return 'straight';
 }
 

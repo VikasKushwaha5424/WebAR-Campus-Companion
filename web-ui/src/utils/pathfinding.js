@@ -1,6 +1,6 @@
 export const ARRIVAL_THRESHOLD = 2.0;
 
-class MinHeap {
+export class MinHeap {
   constructor() {
     this.heap = [];
   }

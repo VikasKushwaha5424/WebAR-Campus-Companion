@@ -24,10 +24,13 @@ export default function ARScene({
     const nextNode = getNodeById(nextNodeId, CAMPUS_NODES);
     if (!nextNode) return null;
 
-    const prevNodeId = currentRoute[nextWaypointIndex - 1];
+    const currIdx = nextWaypointIndex - 1;
+    const currNodeId = currentRoute[currIdx];
+    const currNode = getNodeById(currIdx >= 0 ? currNodeId : null, CAMPUS_NODES);
+    const prevNodeId = currIdx >= 1 ? currentRoute[currIdx - 1] : null;
     const prevNode = getNodeById(prevNodeId, CAMPUS_NODES);
-    const currNode = currentNodeId ? getNodeById(currentNodeId, CAMPUS_NODES) : null;
     const originNode = currNode || prevNode;
+    if (!originNode) return null;
 
     const bearing = calculateBearing(
       originNode.lat, originNode.lng,
@@ -40,7 +43,7 @@ export default function ARScene({
     );
 
     let directionLabel = '';
-    if (currNode && prevNode && currNode !== prevNode) {
+    if (prevNode && currNode) {
       const turnAngle = computeTurnAngle(
         prevNode.lat, prevNode.lng,
         currNode.lat, currNode.lng,
@@ -50,7 +53,7 @@ export default function ARScene({
     }
 
     return { nextNode, bearing, distance: dist, directionLabel };
-  }, [currentRoute, nextWaypointIndex, currentNodeId]);
+  }, [currentRoute, nextWaypointIndex]);
 
   const arrowBearing = useMemo(() => {
     if (currLoc && waypointData) {
