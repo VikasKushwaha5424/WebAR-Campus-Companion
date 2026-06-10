@@ -160,6 +160,19 @@ function App() {
     try { sessionStorage.removeItem('maya_route'); } catch {}
   }, [clearRouteTimer]);
 
+  const ensureAudioUnlocked = useCallback(() => {
+    if (audioUnlockedRef.current) return;
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const src = ctx.createBufferSource();
+      src.buffer = ctx.createBuffer(1, 1, 22050);
+      src.connect(ctx.destination);
+      src.start(0);
+      ctx.close();
+      audioUnlockedRef.current = true;
+    } catch {}
+  }, []);
+
   const requestAnnouncement = useCallback(async (text) => {
     if (!text) return;
     try {
@@ -173,6 +186,7 @@ function App() {
         const player = systemAudioPlayerRef.current;
         player.src = url;
         player.onended = () => URL.revokeObjectURL(url);
+        ensureAudioUnlocked();
         const playPromise = player.play();
         if (playPromise !== undefined) {
           playPromise.catch(() => {});
@@ -181,7 +195,7 @@ function App() {
     } catch (err) {
       logTelemetryEvent?.('ERROR', 'ANNOUNCE', err.message);
     }
-  }, [logTelemetryEvent]);
+  }, [logTelemetryEvent, ensureAudioUnlocked]);
 
   const computeAndSetRoute = useCallback((fromNodeId, toNodeId) => {
     if (!fromNodeId || !toNodeId) {
@@ -386,6 +400,16 @@ function App() {
     setClassDismissed(false);
   }, [currentClass?.id, nextClass?.id]);
 
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        logTelemetryEvent('INFO', 'UI', 'App resumed from background');
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [logTelemetryEvent]);
+
   // Auto-show floor plan when scanning a building that has one
   useEffect(() => {
     if (location && hasFloorPlan(location)) {
@@ -508,19 +532,6 @@ function App() {
     detectCapabilities();
   }, []);
 
-  const ensureAudioUnlocked = useCallback(() => {
-    if (audioUnlockedRef.current) return;
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const src = ctx.createBufferSource();
-      src.buffer = ctx.createBuffer(1, 1, 22050);
-      src.connect(ctx.destination);
-      src.start(0);
-      ctx.close();
-      audioUnlockedRef.current = true;
-    } catch {}
-  }, []);
-
   const handleSendText = useCallback(
     async (text) => {
       if (!text?.trim()) return;
@@ -539,6 +550,9 @@ function App() {
       setTelemetryStatus({ state: 'PROCESSING', color: '🔵', text: 'AI Processing...' });
 
       const startTime = Date.now();
+
+      const controller = new AbortController();
+      const abortTimeout = setTimeout(() => controller.abort(), 8000);
 
       try {
         const res = await axios.post(
@@ -568,8 +582,9 @@ function App() {
             },
             session_id: sessionIdRef.current,
           },
-          { timeout: 30000, responseType: 'blob' }
+          { timeout: 30000, responseType: 'blob', signal: controller.signal }
         );
+        clearTimeout(abortTimeout);
 
         setTelemetryStatus({ state: 'RECEIVING', color: '🟣', text: 'Stream Connected' });
 
@@ -632,9 +647,12 @@ function App() {
         setIsThinking(false);
         setIsPlaying(false);
         setTelemetryStatus({ state: 'ERROR', color: '🔴', text: 'API Error' });
-        const msg = error.response?.status === 429
-          ? 'AI Quota Exhausted. Switching to Offline Mode.'
-          : 'Connection error. Is the backend running?';
+        clearTimeout(abortTimeout);
+        const msg = error.name === 'AbortError' || error.code === 'ECONNABORTED'
+          ? 'Network connection lost. Please try again.'
+          : error.response?.status === 429
+            ? 'AI Quota Exhausted. Switching to Offline Mode.'
+            : 'Connection error. Is the backend running?';
         setChatHistory((prev) => [...prev, { id: ++nextMsgIdRef.current, sender: 'ai', text: msg, npc: currentNpc }]);
       }
     },

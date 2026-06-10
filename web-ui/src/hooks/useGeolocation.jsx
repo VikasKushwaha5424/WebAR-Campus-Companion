@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, useRef, useCallback } f
 
 const GeolocationContext = createContext(null);
 
-export function GeolocationProvider({ children, enableHighAccuracy = true, maxInterval = 5000, distanceFilter = 3, lowPowerMode = false }) {
+export function GeolocationProvider({ children, enableHighAccuracy = false, maxInterval = 5000, distanceFilter = 3, lowPowerMode = false }) {
   const [coords, setCoords] = useState({ latitude: null, longitude: null, accuracy: null, heading: null, speed: null, timestamp: null });
   const [error, setError] = useState(null);
   const [isWatching, setIsWatching] = useState(false);
@@ -16,8 +16,8 @@ export function GeolocationProvider({ children, enableHighAccuracy = true, maxIn
 
     const options = {
       enableHighAccuracy: lowPowerMode ? false : enableHighAccuracy,
-      maximumInterval: lowPowerMode ? 30000 : maxInterval,
-      distanceFilter: lowPowerMode ? 20 : distanceFilter,
+      maximumAge: lowPowerMode ? 30000 : 5000,
+      timeout: 10000,
     };
 
     watchIdRef.current = navigator.geolocation.watchPosition(

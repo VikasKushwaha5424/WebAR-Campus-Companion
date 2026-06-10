@@ -1,6 +1,7 @@
 import os
 import asyncio
 import sys
+from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -28,7 +29,14 @@ if sys.platform == "win32":
 
 load_npcs()
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    asyncio.create_task(clean_old_sessions())
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -48,8 +56,3 @@ app.include_router(chat.router)
 app.include_router(ws.router)
 app.include_router(session.router)
 app.include_router(announce.router)
-
-
-@app.on_event("startup")
-async def startup():
-    asyncio.create_task(clean_old_sessions())

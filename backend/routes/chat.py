@@ -1,3 +1,4 @@
+import traceback
 import urllib.parse
 import json
 
@@ -128,6 +129,7 @@ async def generate_response(user_input: UserInput):
         encoded = urllib.parse.quote(header)
 
     except Exception as e:
+        traceback.print_exc()
         err = str(e).lower()
         if "429" in err or "quota" in err or "exhausted" in err:
             raise HTTPException(status_code=429, detail="[ERROR_QUOTA_EXHAUSTED]")
