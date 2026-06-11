@@ -36,6 +36,7 @@ export default function useTimetable() {
   }, [timetable]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     update();
     const interval = setInterval(update, 30000);
     return () => clearInterval(interval);

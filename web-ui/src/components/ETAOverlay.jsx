@@ -23,8 +23,10 @@ export default function ETAOverlay({ visible, currentRoute }) {
 
   useEffect(() => {
     if (!visible || !dest?.lat) {
+      /* eslint-disable react-hooks/set-state-in-effect */
       setEta(null);
       setDistance(null);
+      /* eslint-enable react-hooks/set-state-in-effect */
       return;
     }
 

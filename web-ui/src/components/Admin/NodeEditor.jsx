@@ -7,14 +7,14 @@ export default function NodeEditor() {
   const [editId, setEditId] = useState(null);
   const [msg, setMsg] = useState('');
 
-  useEffect(() => { fetchNodes(); }, []);
-
   const fetchNodes = async () => {
     try {
       const res = await fetch(`${API_BASE}/admin/nodes`);
       setNodes(await res.json());
-    } catch {}
+    } catch { /* ignore */ }
   };
+
+  useEffect(() => { /* eslint-disable react-hooks/set-state-in-effect */ fetchNodes(); /* eslint-enable */ }, []);
 
   const save = async () => {
     const body = { ...form, lat: parseFloat(form.lat), lng: parseFloat(form.lng) };
@@ -37,7 +37,7 @@ export default function NodeEditor() {
     try {
       await fetch(`${API_BASE}/admin/nodes/${id}`, { method: 'DELETE' });
       fetchNodes();
-    } catch {}
+    } catch { /* ignore */ }
   };
 
   const edit = (n) => {

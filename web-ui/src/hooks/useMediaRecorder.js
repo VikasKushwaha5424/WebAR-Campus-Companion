@@ -31,7 +31,7 @@ export function useMediaRecorder() {
             resolve(blob);
           };
 
-          recorder.onerror = (e) => {
+          recorder.onerror = () => {
             stream.getTracks().forEach((t) => t.stop());
             streamRef.current = null;
             const err = new Error('MediaRecorder error');

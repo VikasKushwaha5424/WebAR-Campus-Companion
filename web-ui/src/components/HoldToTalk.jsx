@@ -32,7 +32,7 @@ export default function HoldToTalk({ onVoiceResult }) {
 
     return () => {
       if (recognitionRef.current) {
-        try { recognitionRef.current.abort(); } catch {}
+        try { recognitionRef.current.abort(); } catch { /* ignore */ }
       }
     };
   }, []);
@@ -42,7 +42,7 @@ export default function HoldToTalk({ onVoiceResult }) {
       try {
         recognitionRef.current.start();
         return;
-      } catch {}
+      } catch { /* ignore */ }
     }
     startRecording({
       onData: (blob) => cbRef.current?.(blob),
@@ -52,7 +52,7 @@ export default function HoldToTalk({ onVoiceResult }) {
 
   const handleStop = useCallback(() => {
     if (recognitionRef.current) {
-      try { recognitionRef.current.stop(); } catch {}
+      try { recognitionRef.current.stop(); } catch { /* ignore */ }
     } else {
       stopRecording();
     }

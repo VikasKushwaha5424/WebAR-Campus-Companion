@@ -8,14 +8,14 @@ export default function POIEditor() {
   const [editName, setEditName] = useState(null);
   const [msg, setMsg] = useState('');
 
-  useEffect(() => { fetchPois(); fetchNodes(); }, []);
-
   const fetchPois = async () => {
-    try { setPois(await (await fetch(`${API_BASE}/admin/pois`)).json()); } catch {}
+    try { setPois(await (await fetch(`${API_BASE}/admin/pois`)).json()); } catch { /* ignore */ }
   };
   const fetchNodes = async () => {
-    try { setNodes(await (await fetch(`${API_BASE}/admin/nodes`)).json()); } catch {}
+    try { setNodes(await (await fetch(`${API_BASE}/admin/nodes`)).json()); } catch { /* ignore */ }
   };
+
+  useEffect(() => { /* eslint-disable react-hooks/set-state-in-effect */ fetchPois(); fetchNodes(); /* eslint-enable */ }, []);
 
   const save = async () => {
     const body = {
@@ -41,7 +41,7 @@ export default function POIEditor() {
     try {
       await fetch(`${API_BASE}/admin/pois/${encodeURIComponent(name)}`, { method: 'DELETE' });
       fetchPois();
-    } catch {}
+    } catch { /* ignore */ }
   };
 
   const edit = (p) => {

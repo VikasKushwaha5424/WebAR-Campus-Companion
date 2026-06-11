@@ -7,14 +7,14 @@ export default function EdgeEditor() {
   const [form, setForm] = useState({ source: '', target: '', distance: 10, isStairs: false, requiresKeycard: false, hasRamp: true, hasElevator: false });
   const [msg, setMsg] = useState('');
 
-  useEffect(() => { fetchEdges(); fetchNodes(); }, []);
-
   const fetchEdges = async () => {
-    try { setEdges(await (await fetch(`${API_BASE}/admin/edges`)).json()); } catch {}
+    try { setEdges(await (await fetch(`${API_BASE}/admin/edges`)).json()); } catch { /* ignore */ }
   };
   const fetchNodes = async () => {
-    try { setNodes(await (await fetch(`${API_BASE}/admin/nodes`)).json()); } catch {}
+    try { setNodes(await (await fetch(`${API_BASE}/admin/nodes`)).json()); } catch { /* ignore */ }
   };
+
+  useEffect(() => { /* eslint-disable react-hooks/set-state-in-effect */ fetchEdges(); fetchNodes(); /* eslint-enable */ }, []);
 
   const save = async () => {
     try {
@@ -37,7 +37,7 @@ export default function EdgeEditor() {
     try {
       await fetch(`${API_BASE}/admin/edges?source=${s}&target=${t}`, { method: 'DELETE' });
       fetchEdges();
-    } catch {}
+    } catch { /* ignore */ }
   };
 
   const sel = { marginBottom: 8, padding: '6px 10px', background: '#2a2a2a', border: '1px solid #444', borderRadius: 4, color: '#fff', fontSize: 13, width: '100%', boxSizing: 'border-box' };

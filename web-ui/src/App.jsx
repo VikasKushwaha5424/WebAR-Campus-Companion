@@ -11,6 +11,7 @@ import ETAOverlay from './components/ETAOverlay';
 import ClassStatus from './components/ClassStatus';
 import useTimetable from './hooks/useTimetable';
 import useGeolocation, { GeolocationProvider } from './hooks/useGeolocation';
+import useRouteRecalculation from './hooks/useRouteRecalculation';
 import { API_BASE, CAMPUS_LOCATIONS, CAMPUS_POI } from './data/config';
 import { hasFloorPlan } from './data/floorplans';
 import './App.css';
@@ -33,49 +34,16 @@ function App() {
   const [routeFilters, setRouteFilters] = useState({ noStairs: false, wheelchair: false, noKeycard: false });
   const [settingsVisible, setSettingsVisible] = useState(false);
 
-  const [, setSpeechSupported] = useState(true);
+  const [speechSupported] = useState(() => !!(window.SpeechRecognition || window.webkitSpeechRecognition));
   const gpsLocatedRef = useRef(false);
+  const recoveredRef = useRef(false);
 
   const timetable = useTimetable();
   const { currentClass, nextClass, minsToNext, autoDestination } = timetable;
-  const { latitude, longitude } = useGeolocation();
+  const { latitude, longitude, permissionDenied } = useGeolocation();
+  const currentCoords = { latitude, longitude };
 
   const sessionIdRef = useRef(null);
-
-  useEffect(() => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    setSpeechSupported(!!SR);
-    const init = async () => {
-      try {
-        const res = await axios.get(`${API_BASE}/init-session`, { timeout: 5000 });
-        sessionIdRef.current = res.data.session_id;
-      } catch {
-        sessionIdRef.current = 'fallback_' + Date.now();
-      }
-    };
-    init();
-  }, []);
-
-  useEffect(() => {
-    if (latitude === null || longitude === null || gpsLocatedRef.current) return;
-    gpsLocatedRef.current = true;
-    (async () => {
-      try {
-        const res = await axios.post(`${API_BASE}/api/nearest`, { lat: latitude, lng: longitude }, { timeout: 5000 });
-        const data = res.data;
-        if (data.poi_name) {
-          setLocation(data.node_id);
-        }
-      } catch {}
-    })();
-  }, [latitude, longitude]);
-
-  useEffect(() => {
-    if (!autoDestination || routeStatus !== 'idle') return;
-    setDestination(autoDestination);
-    setMapVisible(true);
-    requestRoute(location || '', autoDestination);
-  }, [autoDestination]);
 
   const requestRoute = useCallback(async (fromNode, toNode) => {
     try {
@@ -97,7 +65,73 @@ function App() {
       console.error('Route fetch failed:', err);
     }
     return null;
+  }, [latitude, longitude]);
+
+  useEffect(() => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    void SR;
+    const init = async () => {
+      try {
+        const res = await axios.get(`${API_BASE}/init-session`, { timeout: 5000 });
+        sessionIdRef.current = res.data.session_id;
+      } catch {
+        sessionIdRef.current = 'fallback_' + Date.now();
+      }
+    };
+    init();
+  }, [speechSupported]);
+
+  useEffect(() => {
+    if (latitude === null || longitude === null || gpsLocatedRef.current) return;
+    gpsLocatedRef.current = true;
+    (async () => {
+      try {
+        const res = await axios.post(`${API_BASE}/api/nearest`, { lat: latitude, lng: longitude }, { timeout: 5000 });
+        const data = res.data;
+        if (data.poi_name) {
+          setLocation(data.node_id);
+        }
+      } catch {
+        // GPS auto-detect failed; user can select manually
+      }
+    })();
+  }, [latitude, longitude]);
+
+  useEffect(() => {
+    if (recoveredRef.current) return;
+    recoveredRef.current = true;
+    try {
+      const saved = localStorage.getItem('maya_nav_state');
+      if (saved) {
+        const state = JSON.parse(saved);
+        const age = Date.now() - state.timestamp;
+        if (age < 30 * 60 * 1000 && state.routeStatus === 'active' && state.currentRoute) {
+          /* eslint-disable react-hooks/set-state-in-effect */
+          setDestination(state.destination);
+          setCurrentRoute(state.currentRoute);
+          setRouteDistance(state.routeDistance);
+          setRouteSteps(state.routeSteps);
+          setRouteStatus('active');
+          setMapVisible(true);
+          /* eslint-enable react-hooks/set-state-in-effect */
+        } else {
+          localStorage.removeItem('maya_nav_state');
+        }
+      }
+    } catch {
+      // Corrupted localStorage entry; ignore
+    }
   }, []);
+
+  useEffect(() => {
+    if (!autoDestination || routeStatus !== 'idle') return;
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setDestination(autoDestination);
+    setMapVisible(true);
+    /* eslint-enable react-hooks/set-state-in-effect */
+    requestRoute(location || '', autoDestination);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoDestination]);
 
   const handleSendText = useCallback(async (text) => {
     if (!text?.trim()) return;
@@ -172,7 +206,9 @@ function App() {
   const handleStartNavigation = useCallback(() => {
     setRouteStatus('active');
     setShowRoutePreview(false);
-  }, []);
+    const state = { destination, currentRoute, routeDistance, routeSteps, routeStatus: 'active', timestamp: Date.now() };
+    try { localStorage.setItem('maya_nav_state', JSON.stringify(state)); } catch { /* localStorage unavailable */ }
+  }, [destination, currentRoute, routeDistance, routeSteps]);
 
   const handleCancelRoute = useCallback(() => {
     setCurrentRoute(null);
@@ -181,6 +217,7 @@ function App() {
     setRouteStatus('idle');
     setShowRoutePreview(false);
     setDestination(null);
+    try { localStorage.removeItem('maya_nav_state'); } catch { /* localStorage unavailable */ }
   }, []);
 
   const handleClassNavigate = useCallback((locId) => {
@@ -189,9 +226,47 @@ function App() {
     requestRoute(location || '', locId);
   }, [location, requestRoute]);
 
+  const handleRecalculate = useCallback(async (dist) => {
+    if (!destination) return;
+    const msg = {
+      id: Date.now(),
+      sender: 'ai',
+      text: `You've wandered ${Math.round(dist)}m off the route. I've recalculated directions from your current position.`,
+    };
+    setChatHistory((prev) => [...prev, msg]);
+    const result = await requestRoute(location || '', destination);
+    if (result) {
+      setRouteStatus('active');
+      setShowRoutePreview(false);
+      const state = { destination, currentRoute: result.path, routeDistance: result.distance, routeSteps: result.steps, routeStatus: 'active', timestamp: Date.now() };
+      try { localStorage.setItem('maya_nav_state', JSON.stringify(state)); } catch { /* localStorage unavailable */ }
+    }
+  }, [location, destination, requestRoute]);
+
+  useRouteRecalculation({
+    currentRoute,
+    currentCoords,
+    routeStatus,
+    onRecalculate: handleRecalculate,
+  });
+
+  useEffect(() => {
+    if (routeStatus === 'active' && destination && currentRoute) {
+      const state = { destination, currentRoute, routeDistance, routeSteps, routeStatus, timestamp: Date.now() };
+      try { localStorage.setItem('maya_nav_state', JSON.stringify(state)); } catch { /* localStorage unavailable */ }
+    }
+  }, [routeStatus, destination, currentRoute, routeDistance, routeSteps]);
+
   return (
     <GeolocationProvider>
     <div className="app-container">
+      {permissionDenied && (
+        <div className="gps-permission-banner">
+          <span>📍 Location access denied.</span>
+          <span>Please select your starting point from the dropdown.</span>
+        </div>
+      )}
+
       <div className="top-bar">
         <select
           className="location-select"
@@ -236,6 +311,7 @@ function App() {
         visible={mapVisible}
         onClose={() => setMapVisible(false)}
         currentRoute={currentRoute}
+        currentCoords={currentCoords}
       />
 
       <FloorPlanView

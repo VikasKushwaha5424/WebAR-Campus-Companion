@@ -2,6 +2,8 @@ import { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
+const ROUTE_COLORS = ['#FF0000', '#FFD700', '#2196F3', '#4CAF50', '#9C27B0', '#FF8C00', '#E91E63', '#FF69B4', '#808080', '#00FFFF'];
+
 function createIcon(html, className = '') {
   return L.divIcon({
     html,
@@ -20,6 +22,11 @@ const CURRENT_ICON = createIcon(
   'current-marker'
 );
 
+const LIVE_ICON = createIcon(
+  `<div style="width:16px;height:16px;background:#2196F3;border:3px solid #fff;border-radius:50%;box-shadow:0 0 0 4px rgba(33,150,243,0.3),0 0 0 8px rgba(33,150,243,0.1),0 2px 8px rgba(0,0,0,0.4);animation:livePulse 2s infinite;"></div>`,
+  'current-marker live-marker'
+);
+
 const DEST_ICON = createIcon(
   `<div style="width:20px;height:20px;background:#4CAF50;border:3px solid #fff;border-radius:50%;box-shadow:0 0 0 3px rgba(76,175,80,0.4),0 2px 8px rgba(0,0,0,0.4);"></div>`,
   'dest-marker'
@@ -29,11 +36,12 @@ const POI_ICON = createIcon(
   `<div style="width:8px;height:8px;background:#00BCD4;border:1px solid #fff;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,0.3);"></div>`
 );
 
-export default function CampusMap({ currentId, destinationId, locations, pois, visible, onClose, currentRoute }) {
+export default function CampusMap({ currentId, destinationId, locations, pois, visible, onClose, currentRoute, currentCoords }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const markersRef = useRef({});
   const currentMarkerRef = useRef(null);
+  const liveMarkerRef = useRef(null);
   const destMarkerRef = useRef(null);
   const poiMarkersRef = useRef([]);
   const routePolylineRef = useRef(null);
@@ -48,6 +56,8 @@ export default function CampusMap({ currentId, destinationId, locations, pois, v
     const map = L.map(containerRef.current, {
       zoomControl: false,
       attributionControl: true,
+      minZoom: 15,
+      maxZoom: 19,
     }).setView([17.782, 83.377], 16);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -108,6 +118,10 @@ export default function CampusMap({ currentId, destinationId, locations, pois, v
       currentMarkerRef.current = null;
     }
 
+    if (currentCoords?.latitude && currentCoords?.longitude) {
+      return;
+    }
+
     if (currentId) {
       const loc = locations.find((l) => l.id === currentId);
       if (loc?.lat && loc?.lng) {
@@ -118,7 +132,25 @@ export default function CampusMap({ currentId, destinationId, locations, pois, v
         map.setView([loc.lat, loc.lng], map.getZoom(), { animate: true });
       }
     }
-  }, [currentId, locations]);
+  }, [currentId, locations, currentCoords]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (liveMarkerRef.current) {
+      map.removeLayer(liveMarkerRef.current);
+      liveMarkerRef.current = null;
+    }
+
+    if (currentCoords?.latitude && currentCoords?.longitude) {
+      liveMarkerRef.current = L.marker([currentCoords.latitude, currentCoords.longitude], {
+        icon: LIVE_ICON, zIndexOffset: 1000,
+      }).addTo(map);
+      liveMarkerRef.current.bindTooltip('You are here', { direction: 'top' });
+      map.setView([currentCoords.latitude, currentCoords.longitude], map.getZoom(), { animate: true });
+    }
+  }, [currentCoords]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -157,16 +189,17 @@ export default function CampusMap({ currentId, destinationId, locations, pois, v
         .map((n) => [n.lat, n.lng]);
 
       if (coords.length >= 2) {
+        const color = ROUTE_COLORS[0];
         routePolylineRef.current = L.polyline(coords, {
-          color: '#FF8C00', weight: 4, opacity: 0.8, dashArray: '6, 6',
+          color, weight: 5, opacity: 0.85,
         }).addTo(map);
 
         currentRoute.forEach((node, i) => {
           if (!node.lat || !node.lng) return;
           const m = L.circleMarker([node.lat, node.lng], {
             radius: i === 0 || i === currentRoute.length - 1 ? 6 : 4,
-            color: '#FF8C00',
-            fillColor: i === 0 ? '#2196F3' : i === currentRoute.length - 1 ? '#4CAF50' : '#FF8C00',
+            color,
+            fillColor: i === 0 ? '#2196F3' : i === currentRoute.length - 1 ? '#4CAF50' : color,
             fillOpacity: 0.9, weight: 2,
           }).addTo(map);
           if (node.label) m.bindTooltip(node.label, { direction: 'top', offset: [0, -4] });

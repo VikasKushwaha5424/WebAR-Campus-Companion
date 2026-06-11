@@ -14,6 +14,7 @@ export default function ChatOverlay({
     timers.current = [];
 
     if (!lastAi || !isPlaying) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       if (lastAi) setStreamed((p) => ({ ...p, [lastAi.text]: lastAi.text }));
       return;
     }
@@ -37,6 +38,7 @@ export default function ChatOverlay({
     next();
 
     return () => timers.current.forEach(clearTimeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastAi?.text, isPlaying]);
 
   const activeName = npcDetails[activeNpc]?.name || activeNpc;
