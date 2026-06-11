@@ -1,0 +1,107 @@
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from typing import Optional
+
+import state
+from engine.pathfinding import find_path
+from engine.poi_search import find_node_id, get_all_names
+
+router = APIRouter()
+
+class ChatRequest(BaseModel):
+    text: str
+    session_id: str = 'default'
+    location: str = ''
+    user_lat: Optional[float] = None
+    user_lng: Optional[float] = None
+
+@router.post('/generate')
+async def generate_response(req: ChatRequest):
+    if not req.text.strip():
+        return {'text_response': "I didn't hear anything — could you say that again?", 'route': None}
+
+    npc = 'maya'
+    history = state.get_or_create_session(req.session_id, npc)
+    system_prompt = state.NPC_PROMPTS.get(npc, "You are Maya, a helpful campus guide.")
+
+    location_note = f"The user is at: {req.location.replace('_', ' ').title()}" if req.location else ''
+
+    NAVIGATE_TOOL = {
+        'type': 'function',
+        'function': {
+            'name': 'find_route',
+            'description': 'Find the shortest walking path to a campus location. Call this when the user asks for directions, navigation, or how to get somewhere.',
+            'parameters': {
+                'type': 'object',
+                'properties': {
+                    'destination': {
+                        'type': 'string',
+                        'description': f'The destination name. Valid locations: {", ".join(get_all_names())}',
+                    }
+                },
+                'required': ['destination'],
+            },
+        },
+    }
+
+    messages = [{'role': 'system', 'content': system_prompt}]
+    for msg in history[-6:]:
+        messages.append(msg)
+
+    user_prompt = location_note + f"\nUser says: {req.text}" if location_note else f"User says: {req.text}"
+    messages.append({'role': 'user', 'content': user_prompt})
+
+    try:
+        response = await state.groq_client.chat.completions.create(
+            model=state.groq_model,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=300,
+            tools=[NAVIGATE_TOOL],
+            tool_choice='auto',
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        err = str(e).lower()
+        if '429' in err or 'quota' in err or 'exhausted' in err:
+            raise HTTPException(429, detail='[ERROR_QUOTA_EXHAUSTED]')
+        raise HTTPException(500, detail=str(e))
+
+    choice = response.choices[0].message
+    reply_text = choice.content or ''
+    route_data = None
+
+    if choice.tool_calls:
+        for tc in choice.tool_calls:
+            if tc.function.name == 'find_route':
+                try:
+                    import json
+                    args = json.loads(tc.function.arguments)
+                    dest = args.get('destination', '')
+                    to_node = find_node_id(dest) or dest
+                    from_node = req.location or ''
+                    result = find_path(from_node, to_node)
+                    if result['path']:
+                        coords = [[p['lat'], p['lng']] for p in result['path']]
+                        route_data = {
+                            'from': from_node,
+                            'to': to_node,
+                            'coordinates': coords,
+                            'distance': result['distance'],
+                            'steps': result['steps'],
+                        }
+                        if not reply_text:
+                            loc_name = dest.replace('_', ' ').title()
+                            reply_text = f"I'll guide you to the {loc_name}! Here's the route on the map."
+                except Exception:
+                    import traceback
+                    traceback.print_exc()
+
+    history.append({'role': 'user', 'content': req.text})
+    assistant_msg = choice.model_dump(exclude_none=True)
+    history.append(assistant_msg)
+    if len(history) > 10:
+        del history[:-10]
+
+    return {'text_response': reply_text, 'route': route_data}

@@ -18,7 +18,8 @@ export default defineConfig({
       '/reset': { target: 'http://127.0.0.1:8000', changeOrigin: true },
       '/init-session': { target: 'http://127.0.0.1:8000', changeOrigin: true },
       '/announce': { target: 'http://127.0.0.1:8000', changeOrigin: true },
-      '/ws': { target: 'http://127.0.0.1:8000', ws: true, changeOrigin: true },
+      '/api': { target: 'http://127.0.0.1:8000', changeOrigin: true },
+      '/admin': { target: 'http://127.0.0.1:8000', changeOrigin: true },
     },
   },
 })

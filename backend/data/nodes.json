@@ -1,0 +1,17 @@
+[
+  {"id": "node_library", "label": "Library Entrance", "type": "anchor", "lat": 17.782078, "lng": 83.377342},
+  {"id": "node_admin", "label": "Admin Block Entrance", "type": "anchor", "lat": 17.781178, "lng": 83.379191},
+  {"id": "node_cse", "label": "CS Department Entrance", "type": "anchor", "lat": 17.780486, "lng": 83.376235},
+  {"id": "node_canteen", "label": "Canteen Entrance", "type": "anchor", "lat": 17.783407, "lng": 83.379935},
+  {"id": "node_sports", "label": "Sports Complex", "type": "anchor", "lat": 17.783211, "lng": 83.378911},
+  {"id": "node_auditorium", "label": "Auditorium", "type": "anchor", "lat": 17.781841, "lng": 83.377170},
+  {"id": "node_hostel", "label": "Hostel Block", "type": "anchor", "lat": 17.783780, "lng": 83.378555},
+  {"id": "node_parking", "label": "Parking", "type": "anchor", "lat": 17.780280, "lng": 83.379079},
+  {"id": "wp_lib_admin_path", "label": "Library-Admin Path", "type": "waypoint", "lat": 17.781700, "lng": 83.378200},
+  {"id": "wp_admin_parking_path", "label": "Admin-Parking Path", "type": "waypoint", "lat": 17.780800, "lng": 83.379100},
+  {"id": "wp_lib_aud_path", "label": "Library-Auditorium Path", "type": "waypoint", "lat": 17.781900, "lng": 83.377200},
+  {"id": "wp_aud_cse_path", "label": "Auditorium-CSE Path", "type": "waypoint", "lat": 17.781100, "lng": 83.376700},
+  {"id": "wp_lib_sports_path", "label": "Library-Sports Path", "type": "waypoint", "lat": 17.782600, "lng": 83.378100},
+  {"id": "wp_sports_canteen_path", "label": "Sports-Canteen Path", "type": "waypoint", "lat": 17.783300, "lng": 83.379500},
+  {"id": "wp_sports_hostel_path", "label": "Sports-Hostel Path", "type": "waypoint", "lat": 17.783500, "lng": 83.378700}
+]

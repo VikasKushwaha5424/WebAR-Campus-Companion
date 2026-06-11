@@ -1,5 +1,41 @@
-from typing import Optional
-from openai import AsyncOpenAI
+import time, asyncio
 
-groq_client: Optional[AsyncOpenAI] = None
-groq_model: str = "llama-3.1-8b-instant"
+groq_client = None
+groq_model = "llama-3.1-8b-instant"
+
+NPC_PROMPTS = {
+    'maya': (
+        "You are Maya, the official GITAM University campus assistant. "
+        "You are friendly, concise, and helpful. You answer student questions about campus life, "
+        "academic information, and directions. You NEVER refer to yourself as an AI. "
+        "You use simple, clear language. Keep responses under 3 sentences when possible. "
+        "If a student asks for directions or how to get somewhere, you MUST use the find_route tool. "
+        "You know the campus well — library hours, building locations, and general student info."
+    ),
+}
+
+NPC_VOICES = {
+    'maya': 'en-US-AriaNeural',
+}
+
+session_memories = {}
+
+def get_or_create_session(session_id, npc_id='maya'):
+    now = time.time()
+    if session_id not in session_memories:
+        session_memories[session_id] = {'data': {}, 'created': now, 'last_active': now}
+    mem = session_memories[session_id]
+    mem['last_active'] = now
+    if npc_id not in mem['data']:
+        mem['data'][npc_id] = []
+    return mem['data'][npc_id]
+
+async def clean_old_sessions():
+    while True:
+        await asyncio.sleep(300)
+        now = time.time()
+        stale = [sid for sid, s in session_memories.items() if now - s['last_active'] > 7200]
+        for sid in stale:
+            del session_memories[sid]
+        if stale:
+            print(f"[GC] Cleaned {len(stale)} stale sessions")

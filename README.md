@@ -1,73 +1,79 @@
-# XR-NPC-Project
+# Maya — GITAM Smart Campus PWA
 
-**WebAR Campus Companion** — an AR-powered campus navigation guide with AI NPCs.
+A progressive web app for campus navigation with an AI assistant (Maya). 2D map only — no AR/3D.
 
-## Structure
+## Architecture
 
 ```
-├── backend/       # Python FastAPI server (STT + LLM + TTS)
-│   ├── app.py         # FastAPI app creation
-│   ├── main.py        # Entry point
-│   ├── models.py      # Pydantic schemas
-│   ├── npcs.py        # NPC personality & session management
-│   ├── state.py       # Shared app state
-│   ├── services/      # STT (Whisper) & TTS (Edge-TTS)
-│   ├── routes/        # HTTP + WebSocket endpoints
-│   └── requirements.txt
-├── web-ui/        # React + Vite + A-Frame frontend
-│   └── src/
-│       ├── components/  # React components
-│       ├── hooks/       # Custom hooks
-│       ├── data/        # Shared config/constants
-│       └── App.jsx
-└── docs/          # Documentation
+Frontend (React + Leaflet + Vite)      Backend (Python FastAPI)
+┌─────────────────────────────┐       ┌──────────────────────────┐
+│  CampusMap (Leaflet/OSM)    │──────▶│  POST /api/route         │
+│  ChatOverlay (bottom sheet) │──────▶│  POST /generate (LLM)    │
+│  HoldToTalk (Web Speech)    │──────▶│  POST /transcribe        │
+│  FloorPlanView (SVG)        │       │  GET  /api/poi/list      │
+│  SettingsPanel              │       │  GET  /locations         │
+│  RoutePreview               │       │  POST /api/nearest       │
+│  AdminDashboard (/admin)    │       │  data/nodes.json,poi.json│
+└─────────────────────────────┘       └──────────────────────────┘
+          ↕ GPS + SpeechSynthesis (all client-side)
 ```
 
 ## Quick Start
 
+### Backend (port 8000)
 ```bash
-# Backend
 cd backend
 python -m venv venv
-venv\Scripts\activate  # Windows
+.\venv\Scripts\activate
 pip install -r requirements.txt
 # Add GROQ_API_KEY to backend/.env
 python main.py
+```
 
-# Frontend
+### Frontend (port 5173)
+```bash
 cd web-ui
 npm install
 npm run dev
 ```
 
-## Testing on Mobile (AR Mode)
+### Admin Dashboard
+Open `http://localhost:5173/admin` to add/edit campus nodes, edges, and POIs.
 
-### 1. Camera requires HTTPS
-Mobile browsers block `navigator.mediaDevices` on insecure HTTP (except localhost).  
-To test AR on your phone from your dev machine, use **ngrok**:
+## API Endpoints
 
-```bash
-# Install ngrok from https://ngrok.com
-ngrok http 5173
-# Open the https://xxxx.ngrok-free.app URL on your phone
-```
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/generate` | LLM chat (returns `{text_response, route}`) |
+| `POST` | `/api/route` | A* pathfinding (`{from, to}` → `{path, distance, steps}`) |
+| `POST` | `/api/nearest` | Find nearest node by GPS (`{lat, lng}`) |
+| `POST` | `/api/poi/search` | Search POIs by name/alias |
+| `GET` | `/api/poi/list` | List all POI names |
+| `POST` | `/transcribe` | Audio → text (faster-whisper, iOS fallback) |
+| `GET` | `/locations` | Campus locations + nodes + POIs |
+| `GET/POST/PUT/DELETE` | `/admin/*` | Admin CRUD for nodes/edges/POIs |
 
-### 2. Backend must be reachable from phone
-The frontend `API_BASE` defaults to the same origin. When testing with ngrok or a deployed frontend, point it to your backend:
+## Tech Stack
 
-```bash
-# On Windows (PowerShell):
-$env:VITE_API_BASE="http://192.168.x.x:8000"
-npm run dev
+- **Frontend**: React 19, Leaflet + OpenStreetMap, Vite 8
+- **Backend**: Python FastAPI, Uvicorn
+- **LLM**: Groq API (Llama 3.1 8B) via OpenAI SDK
+- **Pathfinding**: A* on campus graph (backend)
+- **STT**: Browser SpeechRecognition API (primary), faster-whisper (fallback)
+- **TTS**: Browser-native SpeechSynthesis
+- **Data**: JSON files (`nodes.json`, `edges.json`, `poi.json`)
+- **No WebSocket, No A-Frame, No Three.js**
 
-# Or create web-ui/.env.local with:
-VITE_API_BASE=http://192.168.x.x:8000
-```
+## Adding Campus Data
 
-### 3. iOS audio format
-Safari records audio as `.mp4` instead of `.webm`. The app detects the MIME type automatically — no manual fix needed.
+1. Add nodes → `backend/data/nodes.json`
+2. Add edges → `backend/data/edges.json`
+3. Add POIs → `backend/data/poi.json`
+4. Or use the Admin Dashboard at `/admin`
+5. Restart backend — data reloads automatically
 
-## Deployment (Render)
+## Voice Support
 
-The backend is configured for Render via `render.yaml`.  
-`build.sh` installs system-level `ffmpeg` (required by TTS) before pip installs Python packages.
+- **Chrome/Edge**: Full support — SpeechRecognition (mic) + SpeechSynthesis (TTS)
+- **Safari/Firefox**: Limited — backend Whisper STT fallback, SpeechSynthesis TTS
+- **Mobile**: Hold-to-talk button + GPS auto-detect nearest building

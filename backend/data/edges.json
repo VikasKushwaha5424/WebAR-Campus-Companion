@@ -1,0 +1,19 @@
+[
+  {"source": "node_library", "target": "wp_lib_admin_path", "distance": 35, "isStairs": false, "requiresKeycard": false, "hasRamp": true, "hasElevator": false},
+  {"source": "wp_lib_admin_path", "target": "node_admin", "distance": 40, "isStairs": false, "requiresKeycard": false, "hasRamp": true, "hasElevator": false},
+  {"source": "node_admin", "target": "wp_admin_parking_path", "distance": 30, "isStairs": false, "requiresKeycard": false, "hasRamp": true, "hasElevator": false},
+  {"source": "wp_admin_parking_path", "target": "node_parking", "distance": 25, "isStairs": false, "requiresKeycard": false, "hasRamp": true, "hasElevator": false},
+  {"source": "node_library", "target": "wp_lib_aud_path", "distance": 20, "isStairs": false, "requiresKeycard": false, "hasRamp": true, "hasElevator": false},
+  {"source": "wp_lib_aud_path", "target": "node_auditorium", "distance": 15, "isStairs": false, "requiresKeycard": false, "hasRamp": true, "hasElevator": false},
+  {"source": "node_auditorium", "target": "wp_aud_cse_path", "distance": 25, "isStairs": false, "requiresKeycard": false, "hasRamp": true, "hasElevator": false},
+  {"source": "wp_aud_cse_path", "target": "node_cse", "distance": 20, "isStairs": false, "requiresKeycard": false, "hasRamp": true, "hasElevator": false},
+  {"source": "node_cse", "target": "node_parking", "distance": 45, "isStairs": false, "requiresKeycard": false, "hasRamp": true, "hasElevator": false},
+  {"source": "node_library", "target": "wp_lib_sports_path", "distance": 40, "isStairs": false, "requiresKeycard": false, "hasRamp": true, "hasElevator": false},
+  {"source": "wp_lib_sports_path", "target": "node_sports", "distance": 25, "isStairs": false, "requiresKeycard": false, "hasRamp": true, "hasElevator": false},
+  {"source": "node_sports", "target": "wp_sports_canteen_path", "distance": 15, "isStairs": false, "requiresKeycard": false, "hasRamp": true, "hasElevator": false},
+  {"source": "wp_sports_canteen_path", "target": "node_canteen", "distance": 20, "isStairs": false, "requiresKeycard": false, "hasRamp": true, "hasElevator": false},
+  {"source": "node_sports", "target": "wp_sports_hostel_path", "distance": 20, "isStairs": false, "requiresKeycard": false, "hasRamp": true, "hasElevator": false},
+  {"source": "wp_sports_hostel_path", "target": "node_hostel", "distance": 15, "isStairs": false, "requiresKeycard": false, "hasRamp": true, "hasElevator": false},
+  {"source": "wp_lib_sports_path", "target": "node_canteen", "distance": 55, "isStairs": false, "requiresKeycard": false, "hasRamp": true, "hasElevator": false},
+  {"source": "node_admin", "target": "node_hostel", "distance": 80, "isStairs": false, "requiresKeycard": false, "hasRamp": true, "hasElevator": false}
+]

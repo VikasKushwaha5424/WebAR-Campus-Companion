@@ -11,8 +11,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "aframe": "^1.7.1",
-    "aframe-environment-component": "^1.5.0",
     "axios": "^1.16.0",
     "leaflet": "^1.9.4",
     "react": "^19.2.6",

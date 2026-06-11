@@ -1,8 +1,6 @@
 import { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { CAMPUS_NODES } from '../data/config';
-import { getNodeById } from '../utils/pathfinding';
 
 function createIcon(html, className = '') {
   return L.divIcon({
@@ -31,18 +29,15 @@ const POI_ICON = createIcon(
   `<div style="width:8px;height:8px;background:#00BCD4;border:1px solid #fff;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,0.3);"></div>`
 );
 
-export default function CampusMap({ currentId, destinationId, locations, pois, visible, onClose, trailPoints, currentRoute, nextWaypointIndex }) {
+export default function CampusMap({ currentId, destinationId, locations, pois, visible, onClose, currentRoute }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const markersRef = useRef({});
   const currentMarkerRef = useRef(null);
   const destMarkerRef = useRef(null);
   const poiMarkersRef = useRef([]);
-  const polylineRef = useRef(null);
   const routePolylineRef = useRef(null);
-  const routeWaypointMarkersRef = useRef([]);
-  const trailPolylineRef = useRef(null);
-  const trailMarkersRef = useRef([]);
+  const routeMarkersRef = useRef([]);
   const initializedRef = useRef(false);
   const invalidateTimerRef = useRef(null);
 
@@ -61,7 +56,6 @@ export default function CampusMap({ currentId, destinationId, locations, pois, v
     }).addTo(map);
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
-
     mapRef.current = map;
 
     invalidateTimerRef.current = setTimeout(() => map.invalidateSize(), 300);
@@ -82,12 +76,11 @@ export default function CampusMap({ currentId, destinationId, locations, pois, v
     poiMarkersRef.current = [];
 
     if (pois) {
-      const markers = pois.map((poi) => {
+      poiMarkersRef.current = pois.map((poi) => {
         const m = L.marker([poi.lat, poi.lng], { icon: POI_ICON }).addTo(map);
         m.bindTooltip(poi.name, { direction: 'top', offset: [0, -4] });
         return m;
       });
-      poiMarkersRef.current = markers;
     }
   }, [pois]);
 
@@ -100,9 +93,7 @@ export default function CampusMap({ currentId, destinationId, locations, pois, v
 
     locations.forEach((loc) => {
       if (!loc.lat || !loc.lng || !loc.id) return;
-      const m = L.marker([loc.lat, loc.lng], {
-        icon: LOCATION_ICON('#9E9E9E'),
-      }).addTo(map);
+      const m = L.marker([loc.lat, loc.lng], { icon: LOCATION_ICON('#9E9E9E') }).addTo(map);
       m.bindTooltip(loc.name, { direction: 'top', offset: [0, -4] });
       markersRef.current[loc.id] = m;
     });
@@ -121,8 +112,7 @@ export default function CampusMap({ currentId, destinationId, locations, pois, v
       const loc = locations.find((l) => l.id === currentId);
       if (loc?.lat && loc?.lng) {
         currentMarkerRef.current = L.marker([loc.lat, loc.lng], {
-          icon: CURRENT_ICON,
-          zIndexOffset: 1000,
+          icon: CURRENT_ICON, zIndexOffset: 1000,
         }).addTo(map);
         currentMarkerRef.current.bindTooltip('You are here', { direction: 'top' });
         map.setView([loc.lat, loc.lng], map.getZoom(), { animate: true });
@@ -143,8 +133,7 @@ export default function CampusMap({ currentId, destinationId, locations, pois, v
       const loc = locations.find((l) => l.id === destinationId);
       if (loc?.lat && loc?.lng) {
         destMarkerRef.current = L.marker([loc.lat, loc.lng], {
-          icon: DEST_ICON,
-          zIndexOffset: 1000,
+          icon: DEST_ICON, zIndexOffset: 1000,
         }).addTo(map);
         destMarkerRef.current.bindTooltip(loc.name, { direction: 'top' });
       }
@@ -155,118 +144,47 @@ export default function CampusMap({ currentId, destinationId, locations, pois, v
     const map = mapRef.current;
     if (!map) return;
 
-    if (polylineRef.current) {
-      map.removeLayer(polylineRef.current);
-      polylineRef.current = null;
-    }
-
     if (routePolylineRef.current) {
       map.removeLayer(routePolylineRef.current);
       routePolylineRef.current = null;
     }
-    routeWaypointMarkersRef.current.forEach((m) => map.removeLayer(m));
-    routeWaypointMarkersRef.current = [];
+    routeMarkersRef.current.forEach((m) => map.removeLayer(m));
+    routeMarkersRef.current = [];
 
-    if (currentRoute && currentRoute.length >= 2 && nextWaypointIndex < currentRoute.length) {
+    if (currentRoute && currentRoute.length >= 2) {
       const coords = currentRoute
-        .map((nid) => getNodeById(nid, CAMPUS_NODES))
-        .filter(Boolean)
+        .filter((n) => n.lat && n.lng)
         .map((n) => [n.lat, n.lng]);
 
       if (coords.length >= 2) {
         routePolylineRef.current = L.polyline(coords, {
-          color: '#FF8C00',
-          weight: 4,
-          opacity: 0.8,
-          dashArray: '6, 6',
+          color: '#FF8C00', weight: 4, opacity: 0.8, dashArray: '6, 6',
         }).addTo(map);
 
-        currentRoute.forEach((nid, i) => {
-          const node = getNodeById(nid, CAMPUS_NODES);
-          if (!node) return;
-          const isNext = nextWaypointIndex > 0 && i === nextWaypointIndex;
-          const isPassed = nextWaypointIndex > 0 && i < nextWaypointIndex;
-          const radius = isNext ? 6 : isPassed ? 3 : 4;
-          const fillColor = isNext ? '#FF8C00' : isPassed ? '#888' : '#aaa';
+        currentRoute.forEach((node, i) => {
+          if (!node.lat || !node.lng) return;
           const m = L.circleMarker([node.lat, node.lng], {
-            radius,
-            color: isNext ? '#FF8C00' : '#aaa',
-            fillColor,
-            fillOpacity: 0.9,
-            weight: isNext ? 3 : 1,
+            radius: i === 0 || i === currentRoute.length - 1 ? 6 : 4,
+            color: '#FF8C00',
+            fillColor: i === 0 ? '#2196F3' : i === currentRoute.length - 1 ? '#4CAF50' : '#FF8C00',
+            fillOpacity: 0.9, weight: 2,
           }).addTo(map);
-          m.bindTooltip(node.label, { direction: 'top', offset: [0, -4] });
-          routeWaypointMarkersRef.current.push(m);
+          if (node.label) m.bindTooltip(node.label, { direction: 'top', offset: [0, -4] });
+          routeMarkersRef.current.push(m);
         });
 
         const bounds = L.latLngBounds(coords);
         map.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
-        return;
       }
     }
-
-    const current = locations.find((l) => l.id === currentId);
-    const dest = locations.find((l) => l.id === destinationId);
-
-    if (current?.lat && current?.lng && dest?.lat && dest?.lng) {
-      polylineRef.current = L.polyline(
-        [[current.lat, current.lng], [dest.lat, dest.lng]],
-        {
-          color: '#FF8C00',
-          weight: 3,
-          opacity: 0.7,
-          dashArray: '8, 8',
-        }
-      ).addTo(map);
-
-      const bounds = L.latLngBounds(
-        [current.lat, current.lng],
-        [dest.lat, dest.lng]
-      );
-      map.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
-    }
-  }, [currentId, destinationId, locations, currentRoute, nextWaypointIndex]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-
-    if (trailPolylineRef.current) {
-      map.removeLayer(trailPolylineRef.current);
-      trailPolylineRef.current = null;
-    }
-    trailMarkersRef.current.forEach((m) => map.removeLayer(m));
-    trailMarkersRef.current = [];
-
-    if (trailPoints && trailPoints.length > 1) {
-      const coords = trailPoints.map((p) => [p.lat, p.lng]);
-      trailPolylineRef.current = L.polyline(coords, {
-        color: '#00FFFF',
-        weight: 4,
-        opacity: 0.6,
-      }).addTo(map);
-
-      trailPoints.forEach((p) => {
-        const m = L.circleMarker([p.lat, p.lng], {
-          radius: 3,
-          color: '#00FFFF',
-          fillColor: '#00FFFF',
-          fillOpacity: 0.8,
-          weight: 1,
-        }).addTo(map);
-        trailMarkersRef.current.push(m);
-      });
-    }
-  }, [trailPoints]);
+  }, [currentRoute]);
 
   return (
     <div className={`campus-map ${visible ? 'visible' : ''}`}>
       <div className="map-header">
         <div className="map-drag-handle" />
         <span className="map-title">Campus Map</span>
-        <button className="map-close-btn" onClick={onClose} aria-label="Close map">
-          ✕
-        </button>
+        <button className="map-close-btn" onClick={onClose} aria-label="Close map">✕</button>
       </div>
       <div ref={containerRef} className="map-body" />
     </div>
