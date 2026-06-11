@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
@@ -80,7 +82,6 @@ async def generate_response(req: ChatRequest):
         for tc in choice.tool_calls:
             if tc.function.name == 'find_route':
                 try:
-                    import json
                     args = json.loads(tc.function.arguments)
                     dest = args.get('destination', '')
                     to_node = find_node_id(dest) or dest
@@ -107,6 +108,11 @@ async def generate_response(req: ChatRequest):
                             loc_name = dest.replace('_', ' ').title()
                             steps_text = '. '.join(result['steps'])
                             reply_text = f"Here's your route to the {loc_name}. {steps_text}. Total distance: {result['distance']} meters."
+                    history.append({
+                        'role': 'tool',
+                        'content': json.dumps({'distance': result.get('distance', 0), 'steps': result.get('steps', [])}),
+                        'tool_call_id': tc.id,
+                    })
                 except Exception:
                     import traceback
                     traceback.print_exc()

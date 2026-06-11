@@ -21,7 +21,7 @@ export default class ErrorBoundary extends Component {
         <div className="error-boundary">
           <div className="error-boundary-content">
             <h2>Something went wrong</h2>
-            <pre>{this.state.error.message}</pre>
+            <pre>{this.state.error?.message || String(this.state.error) || 'Unknown error'}</pre>
             <button onClick={() => window.location.reload()}>
               Reload App
             </button>

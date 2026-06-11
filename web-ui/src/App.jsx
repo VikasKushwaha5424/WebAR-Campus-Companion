@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import ChatOverlay from './components/ChatOverlay';
 import ChatInput from './components/ChatInput';
@@ -10,7 +10,7 @@ import RoutePreview from './components/RoutePreview';
 import ETAOverlay from './components/ETAOverlay';
 import ClassStatus from './components/ClassStatus';
 import useTimetable from './hooks/useTimetable';
-import useGeolocation, { GeolocationProvider } from './hooks/useGeolocation';
+import useGeolocation from './hooks/useGeolocation';
 import useRouteRecalculation from './hooks/useRouteRecalculation';
 import { API_BASE, CAMPUS_LOCATIONS, CAMPUS_POI } from './data/config';
 import { hasFloorPlan } from './data/floorplans';
@@ -34,14 +34,13 @@ function App() {
   const [routeFilters, setRouteFilters] = useState({ noStairs: false, wheelchair: false, noKeycard: false });
   const [settingsVisible, setSettingsVisible] = useState(false);
 
-  const [speechSupported] = useState(() => !!(window.SpeechRecognition || window.webkitSpeechRecognition));
   const gpsLocatedRef = useRef(false);
   const recoveredRef = useRef(false);
 
   const timetable = useTimetable();
   const { currentClass, nextClass, minsToNext, autoDestination } = timetable;
   const { latitude, longitude, permissionDenied } = useGeolocation();
-  const currentCoords = { latitude, longitude };
+  const currentCoords = useMemo(() => ({ latitude, longitude }), [latitude, longitude]);
 
   const sessionIdRef = useRef(null);
 
@@ -68,8 +67,6 @@ function App() {
   }, [latitude, longitude]);
 
   useEffect(() => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    void SR;
     const init = async () => {
       try {
         const res = await axios.get(`${API_BASE}/init-session`, { timeout: 5000 });
@@ -79,7 +76,7 @@ function App() {
       }
     };
     init();
-  }, [speechSupported]);
+  }, []);
 
   useEffect(() => {
     if (latitude === null || longitude === null || gpsLocatedRef.current) return;
@@ -125,17 +122,20 @@ function App() {
 
   useEffect(() => {
     if (!autoDestination || routeStatus !== 'idle') return;
-    /* eslint-disable react-hooks/set-state-in-effect */
     setDestination(autoDestination);
     setMapVisible(true);
-    /* eslint-enable react-hooks/set-state-in-effect */
     requestRoute(location || '', autoDestination);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoDestination]);
+  }, [autoDestination, location, routeStatus, requestRoute]);
 
   const handleSendText = useCallback(async (text) => {
     if (!text?.trim()) return;
-    const userMsg = { id: Date.now(), sender: 'user', text };
+
+    if ('speechSynthesis' in window) {
+      const unlock = new SpeechSynthesisUtterance('');
+      unlock.volume = 0;
+      window.speechSynthesis.speak(unlock);
+    }
+    const userMsg = { id: Date.now(), sender: 'user', text, npc: 'maya' };
     setChatHistory((prev) => [...prev, userMsg]);
     setIsThinking(true);
 
@@ -151,7 +151,7 @@ function App() {
       const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
       const reply = data.text_response || data.text || '';
 
-      setChatHistory((prev) => [...prev, { id: Date.now() + 1, sender: 'ai', text: reply }]);
+      setChatHistory((prev) => [...prev, { id: Date.now() + 1, sender: 'ai', text: reply, npc: 'maya' }]);
 
       if (reply && 'speechSynthesis' in window) {
         window.speechSynthesis.cancel();
@@ -181,7 +181,7 @@ function App() {
       const errMsg = err.response?.status === 429
         ? 'AI Quota Exhausted. Using offline mode.'
         : 'Connection error. Is the backend running?';
-      setChatHistory((prev) => [...prev, { id: Date.now(), sender: 'ai', text: errMsg }]);
+      setChatHistory((prev) => [...prev, { id: Date.now(), sender: 'ai', text: errMsg, npc: 'maya' }]);
     }
   }, [location, latitude, longitude]);
 
@@ -232,6 +232,7 @@ function App() {
       id: Date.now(),
       sender: 'ai',
       text: `You've wandered ${Math.round(dist)}m off the route. I've recalculated directions from your current position.`,
+      npc: 'maya',
     };
     setChatHistory((prev) => [...prev, msg]);
     const result = await requestRoute(location || '', destination);
@@ -258,7 +259,6 @@ function App() {
   }, [routeStatus, destination, currentRoute, routeDistance, routeSteps]);
 
   return (
-    <GeolocationProvider>
     <div className="app-container">
       {permissionDenied && (
         <div className="gps-permission-banner">
@@ -366,7 +366,6 @@ function App() {
         />
       )}
     </div>
-    </GeolocationProvider>
   );
 }
 

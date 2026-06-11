@@ -4,8 +4,13 @@ DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
 
 def load_json(filename):
     path = os.path.join(DATA_DIR, filename)
-    with open(path, 'r', encoding='utf-8') as f:
-        return json.load(f)
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        raise RuntimeError(f"Data file not found: {path}")
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"Invalid JSON in {filename}: {e}")
 
 _nodes = None
 _edges = None
@@ -57,10 +62,14 @@ def get_node_by_id(node_id):
     return get_node_map().get(node_id)
 
 def find_nearest_node(lat, lng):
+    import math
     best = None
     best_dist = float('inf')
     for n in get_nodes():
-        d = (n['lat'] - lat) ** 2 + (n['lng'] - lng) ** 2
+        dlat = math.radians(n['lat'] - lat)
+        dlng = math.radians(n['lng'] - lng)
+        a = math.sin(dlat/2)**2 + math.cos(math.radians(lat)) * math.cos(math.radians(n['lat'])) * math.sin(dlng/2)**2
+        d = 6371000 * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
         if d < best_dist:
             best_dist = d
             best = n

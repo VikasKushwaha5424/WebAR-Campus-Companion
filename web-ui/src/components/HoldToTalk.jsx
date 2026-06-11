@@ -20,7 +20,7 @@ export default function HoldToTalk({ onVoiceResult }) {
     recognition.lang = 'en-US';
 
     recognition.onresult = (e) => {
-      const text = e.results[0][0].transcript;
+      const text = e.results?.[0]?.[0]?.transcript || '';
       if (text) cbRef.current?.(text);
     };
 

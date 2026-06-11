@@ -32,10 +32,13 @@ def get_or_create_session(session_id, npc_id='maya'):
 
 async def clean_old_sessions():
     while True:
-        await asyncio.sleep(300)
-        now = time.time()
-        stale = [sid for sid, s in session_memories.items() if now - s['last_active'] > 7200]
-        for sid in stale:
-            del session_memories[sid]
-        if stale:
-            print(f"[GC] Cleaned {len(stale)} stale sessions")
+        try:
+            await asyncio.sleep(300)
+            now = time.time()
+            stale = [sid for sid, s in list(session_memories.items()) if now - s['last_active'] > 7200]
+            for sid in stale:
+                del session_memories[sid]
+            if stale:
+                print(f"[GC] Cleaned {len(stale)} stale sessions")
+        except Exception as e:
+            print(f"[GC] Error in session cleaner: {e}")

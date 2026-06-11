@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useEffect, useState, useRef } from 'react';
+import { createContext, useContext, useEffect, useState, useRef, useMemo } from 'react';
 
 const GeolocationContext = createContext(null);
 
@@ -9,22 +9,38 @@ export function GeolocationProvider({ children, enableHighAccuracy = true, maxIn
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [isWatching, setIsWatching] = useState(false);
   const watchIdRef = useRef(null);
+  const lastUpdateRef = useRef(0);
+  const lastPosRef = useRef(null);
 
   useEffect(() => {
     if (!navigator.geolocation) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setError('Geolocation not available');
       return;
     }
 
+    const interval = Math.max(maxInterval || 3000, 1000);
+    const minDistance = distanceFilter || 3;
+
     const options = {
       enableHighAccuracy: lowPowerMode ? false : enableHighAccuracy,
-      maximumAge: lowPowerMode ? 30000 : 3000,
+      maximumAge: lowPowerMode ? 30000 : interval,
       timeout: 10000,
     };
 
     watchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
+        const now = Date.now();
+        const last = lastPosRef.current;
+        if (last && minDistance > 0) {
+          const dLat = (pos.coords.latitude - last.lat) * 111320;
+          const dLng = (pos.coords.longitude - last.lng) * 111320 * Math.cos(last.lat * Math.PI / 180);
+          const moved = Math.sqrt(dLat * dLat + dLng * dLng);
+          if (moved < minDistance && now - lastUpdateRef.current < interval) {
+            return;
+          }
+        }
+        lastPosRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        lastUpdateRef.current = now;
         setCoords({
           latitude: pos.coords.latitude,
           longitude: pos.coords.longitude,
@@ -57,7 +73,7 @@ export function GeolocationProvider({ children, enableHighAccuracy = true, maxIn
     };
   }, [enableHighAccuracy, maxInterval, distanceFilter, lowPowerMode]);
 
-  const value = { ...coords, error, permissionDenied, isWatching };
+  const value = useMemo(() => ({ ...coords, error, permissionDenied, isWatching }), [coords, error, permissionDenied, isWatching]);
 
   return (
     <GeolocationContext.Provider value={value}>

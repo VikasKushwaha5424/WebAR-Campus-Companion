@@ -96,7 +96,10 @@ async def add_edge(edge: EdgeModel):
 @router.delete('/edges')
 async def delete_edge(source: str, target: str):
     edges = _read_json('edges.json')
-    edges = [e for e in edges if not (e['source'] == source and e['target'] == target)]
+    edges = [e for e in edges if not (
+        (e['source'] == source and e['target'] == target) or
+        (e['source'] == target and e['target'] == source)
+    )]
     _write_json('edges.json', edges)
     reload_graph()
     return {'ok': True}

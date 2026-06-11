@@ -9,7 +9,10 @@ _model = None
 def get_model():
     global _model
     if _model is None:
-        _model = WhisperModel("small.en", device="cpu", compute_type="int8")
+        try:
+            _model = WhisperModel("small.en", device="cpu", compute_type="int8")
+        except Exception as e:
+            raise RuntimeError(f"Failed to load Whisper model: {e}")
     return _model
 
 @router.post("/transcribe")
@@ -22,7 +25,9 @@ async def transcribe_upload(
 
     fd, path = tempfile.mkstemp(suffix=ext)
     try:
-        os.write(fd, audio_bytes)
+        written = 0
+        while written < len(audio_bytes):
+            written += os.write(fd, audio_bytes[written:])
         os.close(fd)
 
         model = get_model()

@@ -8,10 +8,18 @@ export default function EdgeEditor() {
   const [msg, setMsg] = useState('');
 
   const fetchEdges = async () => {
-    try { setEdges(await (await fetch(`${API_BASE}/admin/edges`)).json()); } catch { /* ignore */ }
+    try {
+      const res = await fetch(`${API_BASE}/admin/edges`);
+      if (!res.ok) { setMsg(`Fetch error: ${res.status}`); return; }
+      setEdges(await res.json());
+    } catch (e) { setMsg('Error loading edges: ' + e.message); }
   };
   const fetchNodes = async () => {
-    try { setNodes(await (await fetch(`${API_BASE}/admin/nodes`)).json()); } catch { /* ignore */ }
+    try {
+      const res = await fetch(`${API_BASE}/admin/nodes`);
+      if (!res.ok) { setMsg(`Fetch error: ${res.status}`); return; }
+      setNodes(await res.json());
+    } catch (e) { setMsg('Error loading nodes: ' + e.message); }
   };
 
   useEffect(() => { /* eslint-disable react-hooks/set-state-in-effect */ fetchEdges(); fetchNodes(); /* eslint-enable */ }, []);
@@ -35,9 +43,9 @@ export default function EdgeEditor() {
   const del = async (s, t) => {
     if (!confirm(`Delete edge ${s} → ${t}?`)) return;
     try {
-      await fetch(`${API_BASE}/admin/edges?source=${s}&target=${t}`, { method: 'DELETE' });
+      await fetch(`${API_BASE}/admin/edges?source=${encodeURIComponent(s)}&target=${encodeURIComponent(t)}`, { method: 'DELETE' });
       fetchEdges();
-    } catch { /* ignore */ }
+    } catch (e) { setMsg('Error deleting: ' + e.message); }
   };
 
   const sel = { marginBottom: 8, padding: '6px 10px', background: '#2a2a2a', border: '1px solid #444', borderRadius: 4, color: '#fff', fontSize: 13, width: '100%', boxSizing: 'border-box' };

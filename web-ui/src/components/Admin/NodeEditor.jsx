@@ -10,8 +10,9 @@ export default function NodeEditor() {
   const fetchNodes = async () => {
     try {
       const res = await fetch(`${API_BASE}/admin/nodes`);
+      if (!res.ok) { setMsg(`Fetch error: ${res.status}`); return; }
       setNodes(await res.json());
-    } catch { /* ignore */ }
+    } catch (e) { setMsg('Error loading nodes: ' + e.message); }
   };
 
   useEffect(() => { /* eslint-disable react-hooks/set-state-in-effect */ fetchNodes(); /* eslint-enable */ }, []);
@@ -35,9 +36,10 @@ export default function NodeEditor() {
   const deleteNode = async (id) => {
     if (!confirm(`Delete node ${id}?`)) return;
     try {
-      await fetch(`${API_BASE}/admin/nodes/${id}`, { method: 'DELETE' });
+      const res = await fetch(`${API_BASE}/admin/nodes/${id}`, { method: 'DELETE' });
+      if (!res.ok) { setMsg(`Delete error: ${res.status}`); return; }
       fetchNodes();
-    } catch { /* ignore */ }
+    } catch (e) { setMsg('Error deleting: ' + e.message); }
   };
 
   const edit = (n) => {

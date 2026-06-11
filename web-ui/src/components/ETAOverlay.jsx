@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useGeolocation } from '../hooks/useGeolocation';
 
 function haversine(lat1, lng1, lat2, lng2) {
@@ -19,7 +19,7 @@ export default function ETAOverlay({ visible, currentRoute }) {
 
   const { latitude, longitude } = useGeolocation();
 
-  const dest = currentRoute?.[currentRoute.length - 1];
+  const dest = useMemo(() => currentRoute?.[currentRoute.length - 1], [currentRoute]);
 
   useEffect(() => {
     if (!visible || !dest?.lat) {

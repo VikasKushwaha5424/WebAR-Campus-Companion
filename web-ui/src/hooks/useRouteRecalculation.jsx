@@ -9,6 +9,14 @@ function haversine(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function toMeters(lat, lng, refLat, refLng) {
+  const R = 6371000;
+  const dLat = (lat - refLat) * Math.PI / 180;
+  const dLng = (lng - refLng) * Math.PI / 180;
+  const midLat = (lat + refLat) / 2 * Math.PI / 180;
+  return { x: R * dLng * Math.cos(midLat), y: R * dLat };
+}
+
 function distanceToRoute(lat, lng, route) {
   if (!route || route.length < 2) return Infinity;
   let minDist = Infinity;
@@ -22,11 +30,19 @@ function distanceToRoute(lat, lng, route) {
     if (d2 < minDist) minDist = d2;
     const segDist = haversine(p1.lat, p1.lng, p2.lat, p2.lng);
     if (segDist < 0.5) continue;
-    const t = ((lat - p1.lat) * (p2.lat - p1.lat) + (lng - p1.lng) * (p2.lng - p1.lng)) / (segDist * segDist);
+    const refLat = (lat + p1.lat + p2.lat) / 3;
+    const refLng = (lng + p1.lng + p2.lng) / 3;
+    const A = toMeters(p1.lat, p1.lng, refLat, refLng);
+    const B = toMeters(p2.lat, p2.lng, refLat, refLng);
+    const P = toMeters(lat, lng, refLat, refLng);
+    const ABx = B.x - A.x, ABy = B.y - A.y;
+    const APx = P.x - A.x, APy = P.y - A.y;
+    const t = (APx * ABx + APy * ABy) / (ABx * ABx + ABy * ABy);
     if (t > 0 && t < 1) {
-      const projLat = p1.lat + t * (p2.lat - p1.lat);
-      const projLng = p1.lng + t * (p2.lng - p1.lng);
-      const d3 = haversine(lat, lng, projLat, projLng);
+      const projX = A.x + t * ABx;
+      const projY = A.y + t * ABy;
+      const dx = P.x - projX, dy = P.y - projY;
+      const d3 = Math.sqrt(dx * dx + dy * dy);
       if (d3 < minDist) minDist = d3;
     }
   }
@@ -64,6 +80,5 @@ export default function useRouteRecalculation({ currentRoute, currentCoords, rou
         intervalRef.current = null;
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeStatus, currentCoords?.latitude, currentCoords?.longitude, currentRoute, onRecalculate]);
 }

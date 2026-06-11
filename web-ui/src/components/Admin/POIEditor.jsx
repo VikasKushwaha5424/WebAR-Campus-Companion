@@ -9,10 +9,18 @@ export default function POIEditor() {
   const [msg, setMsg] = useState('');
 
   const fetchPois = async () => {
-    try { setPois(await (await fetch(`${API_BASE}/admin/pois`)).json()); } catch { /* ignore */ }
+    try {
+      const res = await fetch(`${API_BASE}/admin/pois`);
+      if (!res.ok) { setMsg(`Fetch error: ${res.status}`); return; }
+      setPois(await res.json());
+    } catch (e) { setMsg('Error loading POIs: ' + e.message); }
   };
   const fetchNodes = async () => {
-    try { setNodes(await (await fetch(`${API_BASE}/admin/nodes`)).json()); } catch { /* ignore */ }
+    try {
+      const res = await fetch(`${API_BASE}/admin/nodes`);
+      if (!res.ok) { setMsg(`Fetch error: ${res.status}`); return; }
+      setNodes(await res.json());
+    } catch (e) { setMsg('Error loading nodes: ' + e.message); }
   };
 
   useEffect(() => { /* eslint-disable react-hooks/set-state-in-effect */ fetchPois(); fetchNodes(); /* eslint-enable */ }, []);
@@ -39,9 +47,10 @@ export default function POIEditor() {
   const del = async (name) => {
     if (!confirm(`Delete POI "${name}"?`)) return;
     try {
-      await fetch(`${API_BASE}/admin/pois/${encodeURIComponent(name)}`, { method: 'DELETE' });
+      const res = await fetch(`${API_BASE}/admin/pois/${encodeURIComponent(name)}`, { method: 'DELETE' });
+      if (!res.ok) { setMsg(`Delete error: ${res.status}`); return; }
       fetchPois();
-    } catch { /* ignore */ }
+    } catch (e) { setMsg('Error deleting: ' + e.message); }
   };
 
   const edit = (p) => {
