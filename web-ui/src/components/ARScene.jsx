@@ -1,7 +1,6 @@
 import { useEffect, useRef, useMemo } from 'react';
 import MayaCharacter from './MayaCharacter';
 import NavigationArrow from './NavigationArrow';
-import ARTrail from './ARTrail';
 import { CAMPUS_LOCATIONS, CAMPUS_NODES } from '../data/config';
 import { calculateBearing, calculateDistance, computeTurnAngle, getDirectionLabel, getVerticalDirection } from '../utils/navigation';
 import { getNodeById } from '../utils/pathfinding';

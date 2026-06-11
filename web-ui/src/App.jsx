@@ -459,7 +459,6 @@ function App() {
   const lastSendRef = useRef(0);
   const blobUrlRef = useRef(null);
   const audioUnlockedRef = useRef(false);
-  const destinationRef = useRef(destination);
   const handledAutoDestRef = useRef(null);
   const nextMsgIdRef = useRef(Date.now());
   const activeNpcRef = useRef(activeNpc);
@@ -473,8 +472,6 @@ function App() {
 
   activeNpcRef.current = activeNpc;
   locationRef.current = location;
-  destinationRef.current = destination;
-
   const isDesktop = renderMode === 'desktop';
 
   useEffect(() => {

@@ -5,7 +5,7 @@ import ARTrail from './ARTrail';
 import { CAMPUS_LOCATIONS, CAMPUS_NODES } from '../data/config';
 import { AR_TARGETS } from '../data/targets';
 import { calculateBearing, calculateDistance, computeTurnAngle, getDirectionLabel, getVerticalDirection } from '../utils/navigation';
-import { getNodeById, ARRIVAL_THRESHOLD } from '../utils/pathfinding';
+import { getNodeById } from '../utils/pathfinding';
 
 const TARGETS_URL = `${import.meta.env.BASE_URL}targets/campus-targets.mind`;
 

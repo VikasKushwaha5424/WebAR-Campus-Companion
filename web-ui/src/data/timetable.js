@@ -44,14 +44,6 @@ export function getTimetable() {
   return stored || DEFAULT_TIMETABLE;
 }
 
-export function setTimetable(timetable) {
-  try {
-    localStorage.setItem('maya_timetable', JSON.stringify(timetable));
-  } catch {
-    /* silently fail */
-  }
-}
-
 function getDayName(date) {
   return DAYS[date.getDay()];
 }
