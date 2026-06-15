@@ -8,7 +8,8 @@ export default function ChatOverlay({
   const fadeTimer = useRef(null);
   const activeName = npcDetails[activeNpc]?.name || activeNpc;
 
-  const lastAi = chatHistory.filter((m) => m.sender === 'ai' && m.npc === activeNpc).at(-1);
+  const aiMessages = chatHistory.filter((m) => m.sender === 'ai' && m.npc === activeNpc);
+  const lastAi = aiMessages[aiMessages.length - 1];
 
   useEffect(() => {
     if (lastAi && !isThinking && !isPlaying) {

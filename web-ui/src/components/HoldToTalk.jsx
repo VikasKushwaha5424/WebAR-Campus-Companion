@@ -27,7 +27,7 @@ export default function HoldToTalk({ onVoiceResult }) {
         .map(r => r[0].transcript)
         .join('');
       
-      if (text && e.results[0].isFinal) {
+      if (text && e.results[e.results.length - 1].isFinal) {
           setListening(false);
           cbRef.current?.(text);
       }

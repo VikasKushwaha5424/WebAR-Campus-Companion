@@ -29,6 +29,14 @@ class NearestRequest(BaseModel):
 async def get_route(req: RouteRequest):
     from engine.pathfinding import find_path_with_snapping
 
+    # Bug #23: Validate lat/lng ranges
+    for lat_val in [req.from_lat, req.to_lat]:
+        if lat_val is not None and (lat_val < -90 or lat_val > 90):
+            return {"found": False, "message": f"Invalid latitude: {lat_val}"}
+    for lng_val in [req.from_lng, req.to_lng]:
+        if lng_val is not None and (lng_val < -180 or lng_val > 180):
+            return {"found": False, "message": f"Invalid longitude: {lng_val}"}
+
     to_id = (find_node_id(req.to_node) or req.to_node) if req.to_node else None
 
     # Snapping logic
@@ -93,7 +101,7 @@ async def get_version():
         if os.path.exists(map_path):
             with open(map_path, 'rb') as f:
                 return {'version': hashlib.md5(f.read()).hexdigest()}
-    except:
+    except Exception:
         pass
     return {'version': 'v1'}
 

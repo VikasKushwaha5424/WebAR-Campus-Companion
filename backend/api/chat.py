@@ -75,7 +75,7 @@ async def generate_response(req: ChatRequest):
                     model=state.groq_model,
                     messages=messages,
                     temperature=0.7,
-                    max_tokens=300,
+                    max_tokens=800,
                     tools=[NAVIGATE_TOOL],
                     tool_choice='auto',
                     stream=True,
@@ -95,11 +95,11 @@ async def generate_response(req: ChatRequest):
                             model=state.groq_model,
                             messages=messages,
                             temperature=0.7,
-                            max_tokens=300,
+                            max_tokens=800,
                             stream=True,
                         )
                         break
-                    except:
+                    except Exception:
                         yield f"data: {json.dumps({'text': 'Sorry, I am having trouble connecting to my brain.'})}\n\n"
                         return
                         
@@ -144,10 +144,12 @@ async def generate_response(req: ChatRequest):
                         to_node = find_node_id(dest)
                         if not to_node:
                             yield f"data: {json.dumps({'text': f'I could not find a location named {dest} on campus.'})}\n\n"
+                            history.append({'role': 'tool', 'content': json.dumps({'error': f'Location {dest} not found'}), 'tool_call_id': tc['id']})
                             continue
                         from_node = find_node_id(req.location) or req.location or ''
                         if not from_node:
                             yield f"data: {json.dumps({'text': 'I need your location to give directions. Please select a starting point.'})}\n\n"
+                            history.append({'role': 'tool', 'content': json.dumps({'error': 'User location unknown'}), 'tool_call_id': tc['id']})
                             continue
                         filters = {}
                         acc = args.get('accessibility', 'none')

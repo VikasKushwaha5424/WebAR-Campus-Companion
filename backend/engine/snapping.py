@@ -108,9 +108,13 @@ def snap_to_road(lat, lng, active_route=None):
                 
     if best_dist > 50 and best_snap:
         # Fallback to nearest endpoint if perpendicular distance > 50m
-        best_snap['lat'] = node_map[best_snap['node1_id']]['lat']
-        best_snap['lng'] = node_map[best_snap['node1_id']]['lng']
-        best_snap['distance'] = haversine_distance(lat, lng, best_snap['lat'], best_snap['lng'])
+        n1 = node_map[best_snap['node1_id']]
+        n2 = node_map[best_snap['node2_id']]
+        best_snap['lat'] = n1['lat']
+        best_snap['lng'] = n1['lng']
+        best_snap['distance'] = haversine_distance(lat, lng, n1['lat'], n1['lng'])
         best_snap['dist_to_node1'] = 0
+        best_snap['dist_to_node2'] = haversine_distance(n1['lat'], n1['lng'], n2['lat'], n2['lng'])
+        best_snap['heading'] = calculate_heading(n1['lat'], n1['lng'], n2['lat'], n2['lng'])
     
     return best_snap

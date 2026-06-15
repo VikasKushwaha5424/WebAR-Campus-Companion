@@ -31,7 +31,8 @@ async def transcribe_upload(
         os.close(fd)
 
         model = get_model()
-        segments, info = model.transcribe(path, beam_size=5, language="en")
+        from fastapi.concurrency import run_in_threadpool
+        segments, info = await run_in_threadpool(model.transcribe, path, beam_size=5, language="en")
 
         text = " ".join(seg.text for seg in segments)
 
@@ -51,5 +52,5 @@ async def transcribe_upload(
     finally:
         try:
             os.unlink(path)
-        except:
+        except Exception:
             pass

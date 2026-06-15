@@ -7,7 +7,7 @@ function haversine(lat1, lng1, lat2, lng2) {
   const dLng = ((lng2 - lng1) * Math.PI) / 180;
   const a = Math.sin(dLat / 2) ** 2 +
     Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * 2 * Math.atan2(Math.sqrt(Math.max(0, a)), Math.sqrt(Math.max(0, 1 - a)));
 }
 
 export default function ETAOverlay({ visible, currentRoute, onCancel }) {
@@ -62,18 +62,15 @@ export default function ETAOverlay({ visible, currentRoute, onCancel }) {
     ? `${(displayDist / 1000).toFixed(1)} km`
     : `${Math.round(displayDist)} m`;
 
+  // Humanized ETA: combine distance + walking time in one natural string
+  const walkMins = eta ?? Math.max(1, Math.round(displayDist / 1.4 / 60));
+
   return (
     <div className="hud-card">
       <div className="hud-card-body">
         <span className="hud-dest">{destLabel.replace(/^Walk from /, '')}</span>
         <span className="hud-divider">·</span>
-        <span className="hud-dist">{distStr}</span>
-        {eta !== null && (
-          <>
-            <span className="hud-divider">·</span>
-            <span className="hud-eta">~{eta} min</span>
-          </>
-        )}
+        <span className="hud-dist">~{walkMins} min ({distStr})</span>
       </div>
       <button className="hud-cancel" onClick={onCancel} aria-label="Cancel route">✕</button>
     </div>

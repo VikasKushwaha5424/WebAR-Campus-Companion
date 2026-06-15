@@ -17,6 +17,7 @@ import { runOfflineAStar } from './utils/pathfinding';
 import useTimetable from './hooks/useTimetable';
 import useGeolocation from './hooks/useGeolocation';
 import useRouteRecalculation from './hooks/useRouteRecalculation';
+import { haversine } from './hooks/useRouteRecalculation';
 import { API_BASE, CAMPUS_LOCATIONS as INITIAL_LOCATIONS, CAMPUS_POI as INITIAL_POI } from './data/config';
 import { hasFloorPlan } from './data/floorplans';
 import './App.css';
@@ -34,7 +35,7 @@ function App() {
   const idleTimeout = useRef(null);
   const [showFloorPlan, setShowFloorPlan] = useState(false);
 
-  const [campusLocations, setCampusLocations] = useState(INITIAL_LOCATIONS);
+  const [campusLocations, setCampusLocations] = useState([]);
   const [campusPoi, setCampusPoi] = useState(INITIAL_POI);
 
   const [currentRoute, setCurrentRoute] = useState(null);
@@ -54,6 +55,11 @@ function App() {
   const { latitude, longitude, permissionDenied } = useGeolocation();
   const currentCoords = useMemo(() => ({ latitude, longitude }), [latitude, longitude]);
 
+  // Bug #6: Wire GPS permission denial to the UI banner
+  useEffect(() => {
+    if (permissionDenied) setPermissionsDenied(true);
+  }, [permissionDenied]);
+
   const sessionIdRef = useRef(null);
 
   const currentRouteRef = useRef(null);
@@ -65,6 +71,7 @@ function App() {
 
   // --- FIX #2: Error toast state for route failures ---
   const [routeErrorToast, setRouteErrorToast] = useState(null);
+  const toastTimerRef = useRef(null);
 
   const requestRoute = useCallback(async (fromNode, toNode) => {
     if (routeAbortRef.current) routeAbortRef.current.abort();
@@ -92,9 +99,12 @@ function App() {
     }
 
     try {
-      const activeRouteNodes = currentRouteRef.current ? currentRouteRef.current.map(n => n.id).filter(Boolean) : [];
+      // Bug #5: Filter out synthetic wp_* IDs that the LLM generates — backend can't use them
+      const activeRouteNodes = currentRouteRef.current
+        ? currentRouteRef.current.map(n => n.id).filter(id => id && !id.startsWith('wp_'))
+        : [];
       const res = await axios.post(`${API_BASE}/api/route`, {
-        from_node: fromNode, to_node: toNode,
+        from_node: fromNode || null, to_node: toNode,
         from_lat: fromLat, from_lng: fromLng,
         to_lat: toLat, to_lng: toLng,
         active_route: activeRouteNodes,
@@ -114,7 +124,8 @@ function App() {
       // Backend returned but no path found — show error toast
       const errMsg = data.message || 'No route found between these locations.';
       setRouteErrorToast(errMsg);
-      setTimeout(() => setRouteErrorToast(null), 5000);
+      clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = setTimeout(() => setRouteErrorToast(null), 5000);
     } catch (err) {
       if (signal.aborted) return null;
       console.warn('Backend route fetch failed, falling back to offline JS pathfinder...', err);
@@ -135,7 +146,8 @@ function App() {
          }
       } catch (offlineErr) { console.error('Offline pathfinding failed', offlineErr); }
       setRouteErrorToast('Route request failed. Please try again.');
-      setTimeout(() => setRouteErrorToast(null), 5000);
+      clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = setTimeout(() => setRouteErrorToast(null), 5000);
     }
     return null;
   }, [latitude, longitude, campusLocations, routeFilters]);
@@ -157,7 +169,10 @@ function App() {
       try {
         const resLocations = await axios.get(`${API_BASE}/locations`, { timeout: 5000 });
         if (resLocations.data.locations) {
-            setCampusLocations([{ id: '', name: '📍 Auto Detect' }, ...resLocations.data.locations]);
+            const sortedLocations = [...resLocations.data.locations].sort((a, b) =>
+              (a.name || '').localeCompare(b.name || '')
+            );
+            setCampusLocations([{ id: '', name: '📍 Auto Detect' }, ...sortedLocations]);
             setCampusPoi(resLocations.data.pois || []);
             
             // Check for Ghost Nodes poisoning
@@ -295,6 +310,7 @@ function App() {
       const msgId = Date.now() + 1;
       setChatHistory((prev) => [...prev, { id: msgId, sender: 'ai', text: '', npc: 'maya' }]);
       
+      // Using fetch instead of axios here because axios doesn't support SSE streaming
       const res = await fetch(`${API_BASE}/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
@@ -309,6 +325,10 @@ function App() {
 
       if (!res.ok) {
         throw new Error('Connection error');
+      }
+
+      if (!res.body) {
+        throw new Error('Response body is empty');
       }
 
       const reader = res.body.getReader();
@@ -497,6 +517,33 @@ function App() {
     onRecalculate: handleRecalculate,
   });
 
+  // Item 6: "You Have Arrived" — auto-cancel route when within 10m of destination
+  useEffect(() => {
+    if (routeStatus !== 'active' || !currentCoords?.latitude || !currentRoute || currentRoute.length < 2) return;
+    const dest = currentRoute[currentRoute.length - 1];
+    if (!dest?.lat || !dest?.lng) return;
+
+    const dist = haversine(currentCoords.latitude, currentCoords.longitude, dest.lat, dest.lng);
+    if (dist < 10) {
+      handleCancelRoute();
+      // Play success chime
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.frequency.setValueAtTime(523, ctx.currentTime);
+        osc.frequency.setValueAtTime(659, ctx.currentTime + 0.15);
+        osc.frequency.setValueAtTime(784, ctx.currentTime + 0.3);
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.8);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.8);
+      } catch(e) { /* audio not supported */ }
+      const msg = { id: Date.now(), sender: 'ai', text: "🎉 You've reached your destination!", npc: 'maya' };
+      setChatHistory(prev => [...prev, msg]);
+    }
+  }, [currentCoords, currentRoute, routeStatus, handleCancelRoute]);
+
   useEffect(() => {
     if (routeStatus === 'active' && destination && currentRoute) {
       const state = { destination, currentRoute, routeDistance, routeSteps, routeStatus, timestamp: Date.now() };
@@ -586,6 +633,7 @@ function App() {
           pois={campusPoi}
           currentRoute={currentRoute}
           currentCoords={currentCoords}
+          filters={routeFilters}
         />
       </ErrorBoundary>
 

@@ -50,7 +50,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         if request.url.path in ["/generate", "/transcribe"]:
             token = request.headers.get("x-api-key")
-            if token != "maya_secret_token":
+            if token != os.getenv("MAYA_API_TOKEN", "maya_secret_token"):
                 return JSONResponse(status_code=403, content={"detail": "Forbidden: Invalid API Token"})
         return await call_next(request)
 

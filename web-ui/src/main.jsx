@@ -10,12 +10,12 @@ if (!rootEl) {
   document.body.innerHTML = '<div style="padding:20px;font-family:sans-serif">App failed to mount: #root element not found.</div>';
 } else {
 createRoot(rootEl).render(
-  <GeolocationProvider>
+  <ErrorBoundary>
     <StrictMode>
-      <ErrorBoundary>
+      <GeolocationProvider>
         <App />
-      </ErrorBoundary>
+      </GeolocationProvider>
     </StrictMode>
-  </GeolocationProvider>,
+  </ErrorBoundary>,
   )
 }

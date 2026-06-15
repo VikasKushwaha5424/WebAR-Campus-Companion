@@ -9,14 +9,21 @@ function haversineDistance(lat1, lon1, lat2, lon2) {
   const a = Math.sin(dp/2) * Math.sin(dp/2) +
             Math.cos(p1) * Math.cos(p2) *
             Math.sin(dl/2) * Math.sin(dl/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  const c = 2 * Math.atan2(Math.sqrt(Math.max(0, a)), Math.sqrt(Math.max(0, 1-a)));
   return R * c;
 }
 
 export function runOfflineAStar(startId, endId, nodeMap, adj, currentCoords = null) {
-  if (!startId && currentCoords) {
-    // Basic snapping logic could go here, but for now we require node IDs
-    // Offline snapping is complex without full road geometry
+  // Bug #19: Handle empty startId by snapping to nearest node via currentCoords
+  if (!startId && currentCoords?.latitude && currentCoords?.longitude) {
+    let bestId = null;
+    let bestDist = Infinity;
+    for (const [id, node] of Object.entries(nodeMap)) {
+      if (!node.lat || !node.lng) continue;
+      const d = haversineDistance(currentCoords.latitude, currentCoords.longitude, node.lat, node.lng);
+      if (d < bestDist) { bestDist = d; bestId = id; }
+    }
+    if (bestId) startId = bestId;
   }
 
   if (!startId || !endId || !nodeMap[startId] || !nodeMap[endId]) return null;
@@ -30,7 +37,7 @@ export function runOfflineAStar(startId, endId, nodeMap, adj, currentCoords = nu
     let current = null;
     let minF = Infinity;
     for (const node of openSet) {
-      if ((fScore[node] || Infinity) < minF) {
+      if ((fScore[node] ?? Infinity) < minF) {
         minF = fScore[node];
         current = node;
       }
@@ -66,7 +73,7 @@ export function runOfflineAStar(startId, endId, nodeMap, adj, currentCoords = nu
       const neighbor = edge.node;
       const tentativeG = gScore[current] + edge.distance;
       
-      if (tentativeG < (gScore[neighbor] || Infinity)) {
+      if (tentativeG < (gScore[neighbor] ?? Infinity)) {
         cameFrom[neighbor] = current;
         gScore[neighbor] = tentativeG;
         fScore[neighbor] = tentativeG + haversineDistance(nodeMap[neighbor].lat, nodeMap[neighbor].lng, nodeMap[endId].lat, nodeMap[endId].lng);

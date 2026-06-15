@@ -1,6 +1,7 @@
 import json
 import os
 import math
+import threading
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
 
@@ -96,7 +97,7 @@ def build_graph_from_roads():
     # 1. Collect unique coordinate vertices
     # We use a rounded coordinate string to prevent float precision issues
     def coord_key(lat, lng, level):
-        return f"{lat:.6f},{lng:.6f},{level}"
+        return f"{lat:.7f},{lng:.7f},{level}"
     
     vertex_map = {} # key -> node_id
     nodes_list = []
@@ -152,7 +153,7 @@ def build_graph_from_roads():
                 'distance': round(dist, 1),
                 'isStairs': is_stairs,
                 'requiresKeycard': req_keycard,
-                'hasRamp': has_ramp or not is_stairs,
+                'hasRamp': has_ramp,
                 'hasElevator': has_elevator,
                 'road_id': road['id']
             }
@@ -162,7 +163,7 @@ def build_graph_from_roads():
                 'distance': round(dist, 1),
                 'isStairs': is_stairs,
                 'requiresKeycard': req_keycard,
-                'hasRamp': has_ramp or not is_stairs,
+                'hasRamp': has_ramp,
                 'hasElevator': has_elevator,
                 'road_id': road['id']
             }
@@ -179,7 +180,7 @@ def build_graph_from_roads():
             current_zone += 1
             queue = [node['id']]
             while queue:
-                curr = queue.pop(0)
+                curr = queue.pop()
                 if curr not in visited:
                     visited.add(curr)
                     zone_map[curr] = current_zone
@@ -214,13 +215,17 @@ _edges = None
 _adj = None
 _node_map = None
 _pois_from_geojson = None
+_graph_lock = threading.Lock()
 
 def _ensure_geojson_loaded():
     global _nodes, _adj, _pois_from_geojson, _node_map, _edges
     if _nodes is None or _adj is None:
-        _nodes, _adj, _pois_from_geojson = build_graph_from_roads()
-        _node_map = None
-        _edges = None
+        with _graph_lock:
+            # Double-check inside lock to prevent duplicate loads
+            if _nodes is None or _adj is None:
+                _nodes, _adj, _pois_from_geojson = build_graph_from_roads()
+                _node_map = None
+                _edges = None
 
 def get_pois():
     _ensure_geojson_loaded()

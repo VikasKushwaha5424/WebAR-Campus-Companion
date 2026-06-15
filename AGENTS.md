@@ -3,17 +3,33 @@
 ## Architecture Overview
 
 ```
-Frontend (React + Leaflet + Vite)      Backend (Python FastAPI)
+Frontend (React + Mapbox + Vite)      Backend (Python FastAPI)
 ┌─────────────────────────────┐       ┌──────────────────────────┐
-│  CampusMap (Leaflet/OSM)    │──────▶│  POST /api/route         │
-│  ChatOverlay (bottom sheet) │──────▶│  POST /generate (LLM)    │
+│  CampusMap (Mapbox GL JS)   │──────▶│  POST /api/route         │
+│  ChatOverlay (subtitle)     │──────▶│  POST /generate (LLM)    │
 │  HoldToTalk (Web Speech)    │──────▶│  POST /transcribe        │
-│  FloorPlanView (SVG)        │       │  GET  /api/poi/list      │
+│  ETAOverlay (HUD card)      │       │  GET  /api/poi/list      │
 │  SettingsPanel              │       │  GET  /locations         │
-│  RoutePreview               │       │  data/nodes.json,poi.json│
+│  RoutePanel (A→B planner)   │       │  POST /api/nearest       │
+│  FloorPlanView (SVG)        │       │  data/map.geojson        │
 └─────────────────────────────┘       └──────────────────────────┘
-          ↕ GPS + SpeechSynthesis (all client-side)
+          ↕ GPS + Compass + SpeechSynthesis (all client-side)
 ```
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `backend/engine/graph.py` | Builds graph from `map.geojson`, adjacency, zones |
+| `backend/engine/pathfinding.py` | A* pathfinder + GPS snapping pathfinder |
+| `backend/engine/snapping.py` | Perpendicular projection onto road segments |
+| `backend/engine/poi_search.py` | POI lookup by name/alias with fuzzy matching |
+| `backend/api/routing.py` | `POST /api/route` endpoint |
+| `backend/api/chat.py` | `POST /generate` — LLM streaming with route tool |
+| `backend/verify_graph.py` | Graph health-check script |
+| `web-ui/src/App.jsx` | Main app state, routing, chat |
+| `web-ui/src/components/CampusMap.jsx` | Mapbox map, markers, route, labels |
+| `web-ui/src/hooks/useRouteRecalculation.jsx` | Off-route detection (debounced) |
 
 ## Running Locally
 
@@ -44,28 +60,40 @@ ngrok http 5173
 ## Vite Proxy Routes
 
 All API routes proxied to `http://127.0.0.1:8000`:
-- `/generate` — Chat + LLM (returns JSON)
+- `/generate` — Chat + LLM (SSE stream)
 - `/transcribe` — Audio transcription
 - `/locations` — Campus data
 - `/reset` — Session reset
 - `/init-session` — Session creation
-- `/api/route` — Pathfinding
-- `/api/poi/search` — POI lookup
-- `/api/poi/list` — All POI names
+- `/api/*` — Routing, POI search, graph, nearest, version
 
 ## Key Design Decisions
 
-- **No WebSocket**: Fully REST. Standard HTTP endpoints.
-- **No A-Frame/Three.js**: 2D map only (Leaflet + OpenStreetMap).
+- **No WebSocket**: Fully REST with SSE for LLM streaming.
+- **Mapbox**: `satellite-v9` style (not Leaflet/OSM).
 - **TTS**: Browser-native `SpeechSynthesis` (no backend audio streaming).
 - **STT**: Browser `SpeechRecognition` API (Chrome/Edge). Backend Whisper available as fallback.
-- **Data**: JSON files (`nodes.json`, `edges.json`, `poi.json`) loaded at startup.
-- **Pathfinding**: A* on backend. `POST /api/route` returns `{path, distance, steps}`.
-- **LLM**: Groq API via OpenAI SDK. Returns JSON `{text_response, route}`.
+- **Data**: Single `data/map.geojson` file (roads + POIs), loaded at startup.
+- **Graph cache**: Thread-safe with `threading.Lock`, cached in module globals.
+- **Pathfinding**: A* on backend. `POST /api/route` returns `{path, distance, steps, snapped_start, start_heading}`.
+- **LLM**: Groq API (Llama 3.3 70B) via OpenAI SDK. SSE streaming with `find_route` tool.
+
+## Notable Bug Fixes
+
+- **GPS jitter**: Recalculation hook refs GPS coords + route — interval doesn't restart on every GPS tick.
+- **Duplicate "Auto Detect"**: `campusLocations` initialized as `[]`, one entry prepended on load.
+- **`.at(-1)` crash**: Replaced with `array[array.length - 1]` for browser compatibility.
+- **Synthetic waypoint IDs**: `wp_*` IDs from LLM filtered out from `active_route` before sending.
+- **Geolocation permission**: GPS denied state now shown as UI banner.
+- **Toast timer**: `toastTimerRef` tracks timeout for cleanup.
+- **Empty `from_node`**: Sent as `null` instead of `''` to backend.
+- **Haversine NaN**: `Math.max(0, a)` guards in all distance calculations.
+- **fitBounds after recalc**: Destination ID includes route length to force re-fit.
+- **ErrorBoundary**: Wraps `StrictMode` (outermost) to catch render errors.
 
 ## Adding New Campus Data
 
-1. Add nodes to `backend/data/nodes.json` (id, label, type, lat, lng)
-2. Add edges to `backend/data/edges.json` (source, target, distance, accessibility flags)
-3. Add POI with aliases to `backend/data/poi.json` (name, aliases[], node_id, category)
+1. Edit `backend/data/map.geojson` — add LineString roads with `isStairs`, `hasRamp`, `requiresKeycard`, `level` properties
+2. Add POI features as Point or Polygon geometry with `name` and `category` properties
+3. Run `python verify_graph.py` to check for isolated nodes or dead ends
 4. Restart backend — data reloads automatically
